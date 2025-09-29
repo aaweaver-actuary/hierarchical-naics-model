@@ -75,3 +75,22 @@ def test_no_prefix_fill_path():
     out = build_hierarchical_indices(codes, cut_points=[1, 2, 3])
     assert out["levels"] == ["L1", "L2", "L3"]
     assert out["code_levels"].shape[1] == 3
+
+
+def test_indices_validation_errors():
+    # Empty codes
+    with pytest.raises(ValueError):
+        build_hierarchical_indices([], cut_points=[1])
+    # Null codes
+    with pytest.raises(ValueError):
+        build_hierarchical_indices(["12", None, "3"], cut_points=[1])  # type: ignore[list-item]
+    # Non-monotonic cut points
+    with pytest.raises(ValueError):
+        build_hierarchical_indices(["12", "13"], cut_points=[2, 2])
+    with pytest.raises(ValueError):
+        build_hierarchical_indices(["12", "13"], cut_points=[2, 1])
+    # Non-positive and empty cut points when provided
+    with pytest.raises(ValueError):
+        build_hierarchical_indices(["12", "13"], cut_points=[0, 1])
+    with pytest.raises(ValueError):
+        build_hierarchical_indices(["12", "13"], cut_points=[])

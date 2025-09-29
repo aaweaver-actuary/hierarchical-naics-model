@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pymc as pm
+import pytest
 
 from hierarchical_naics_model.build_conversion_model import build_conversion_model
 
@@ -74,3 +75,47 @@ def test_posterior_sampling_smoke(model_inputs):
     assert "posterior" in idata.groups()
     for name in ["beta0", "eta", "p"]:
         assert name in idata.posterior or name in idata.posterior.coords  # type: ignore[attr-defined]
+
+
+def test_model_validations(model_inputs):
+    import numpy as np
+    from hierarchical_naics_model.build_conversion_model import build_conversion_model
+
+    # Non-binary y
+    bad_inputs = dict(**model_inputs)
+    bad_inputs["y"] = np.array([0, 2, 1], dtype=int)
+    with pytest.raises(ValueError):
+        build_conversion_model(**bad_inputs)  # type: ignore[arg-type]
+
+    # Mismatched shapes
+    bad_inputs = dict(**model_inputs)
+    bad_inputs["naics_levels"] = bad_inputs["naics_levels"][:10, :]
+    with pytest.raises(ValueError):
+        build_conversion_model(**bad_inputs)  # type: ignore[arg-type]
+
+    # Out-of-range indices
+    bad_inputs = dict(**model_inputs)
+    bad_inputs["naics_levels"] = bad_inputs["naics_levels"].copy()
+    bad_inputs["naics_levels"][0, 0] = bad_inputs["naics_group_counts"][0]  # type: ignore[index]
+    with pytest.raises(ValueError):
+        build_conversion_model(**bad_inputs)  # type: ignore[arg-type]
+
+    # Non-2D levels
+    bad_inputs = dict(**model_inputs)
+    bad_inputs["naics_levels"] = bad_inputs["naics_levels"].reshape(-1)  # 1D
+    with pytest.raises(ValueError):
+        build_conversion_model(**bad_inputs)  # type: ignore[arg-type]
+
+    # Zip group counts length mismatch
+    bad_inputs = dict(**model_inputs)
+    bad_inputs["zip_group_counts"] = bad_inputs["zip_group_counts"][:-1]
+    with pytest.raises(ValueError):
+        build_conversion_model(**bad_inputs)  # type: ignore[arg-type]
+
+    # Negative index in zip levels
+    bad_inputs = dict(**model_inputs)
+    z = bad_inputs["zip_levels"].copy()
+    z[0, 0] = -1
+    bad_inputs["zip_levels"] = z
+    with pytest.raises(ValueError):
+        build_conversion_model(**bad_inputs)  # type: ignore[arg-type]

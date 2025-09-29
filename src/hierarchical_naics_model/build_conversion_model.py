@@ -84,10 +84,34 @@ def build_conversion_model(
     model : pm.Model
         A compiled PyMC model (not sampled).
     """
+    # Basic validations for safety
     y = np.asarray(y, dtype="int8")
+    if y.ndim != 1:
+        raise ValueError("`y` must be a 1D array of 0/1 values.")
+    if np.any((y != 0) & (y != 1)):
+        raise ValueError("`y` must be binary (0/1). Found values outside {0,1}.")
     N = y.shape[0]
+    naics_levels = np.asarray(naics_levels)
+    zip_levels = np.asarray(zip_levels)
+    if naics_levels.ndim != 2 or zip_levels.ndim != 2:
+        raise ValueError("`naics_levels` and `zip_levels` must be 2D arrays.")
+    if naics_levels.shape[0] != N or zip_levels.shape[0] != N:
+        raise ValueError("First dimension of level index arrays must match len(y).")
     L_naics = naics_levels.shape[1]
     L_zip = zip_levels.shape[1]
+    if len(naics_group_counts) != L_naics or len(zip_group_counts) != L_zip:
+        raise ValueError(
+            "Group counts length must match number of levels for NAICS and ZIP."
+        )
+    # Ensure indices are within 0..group_count-1
+    for j in range(L_naics):
+        max_idx = int(np.max(naics_levels[:, j])) if N > 0 else -1
+        if max_idx >= int(naics_group_counts[j]) or np.min(naics_levels[:, j]) < 0:
+            raise ValueError("`naics_levels` indices out of bounds for level {j}.")
+    for j in range(L_zip):
+        max_idx = int(np.max(zip_levels[:, j])) if N > 0 else -1
+        if max_idx >= int(zip_group_counts[j]) or np.min(zip_levels[:, j]) < 0:
+            raise ValueError("`zip_levels` indices out of bounds for level {j}.")
 
     # Coords
     if coords is None:

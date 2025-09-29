@@ -84,6 +84,42 @@ def test_cli_input_not_found(tmp_path: Path):
         cli_main(["--input", str(missing)])
 
 
+def test_cli_validations(tmp_path: Path):
+    # Non-binary target
+    df = pl.DataFrame(
+        {
+            "is_written": [0, 2, 1],
+            "naics": ["52", "511110", "52413"],
+            "zip": ["02139", "30309", "94103"],
+        }
+    )
+    pq = tmp_path / "bad_target.parquet"
+    df.write_parquet(str(pq))
+    with pytest.raises(SystemExit):
+        cli_main(
+            ["--input", str(pq), "--subset", "3"]
+        )  # validation should fire before sampling
+
+    # Invalid draws parameter
+    df2 = pl.DataFrame(
+        {
+            "is_written": [0, 1, 0],
+            "naics": ["52", "511110", "52413"],
+            "zip": ["02139", "30309", "94103"],
+        }
+    )
+    pq2 = tmp_path / "ok.parquet"
+    df2.write_parquet(str(pq2))
+    with pytest.raises(SystemExit):
+        cli_main(
+            ["--input", str(pq2), "--subset", "3", "--draws", "0"]
+        )  # invalid draws
+
+        # Invalid subset
+        with pytest.raises(SystemExit):
+            cli_main(["--input", str(pq2), "--subset", "0"])  # invalid subset
+
+
 def test_cli_summary_and_save_exceptions(tmp_path: Path, monkeypatch):
     # Create minimal valid parquet
     df = pl.DataFrame(

@@ -31,6 +31,18 @@ def _ensure_columns(df: pl.DataFrame, cols: Iterable[str]) -> None:
         )
 
 
+def _validate_binary_series(arr: np.ndarray, name: str = "target") -> None:
+    if arr.ndim != 1:
+        raise SystemExit(f"{name} must be a 1D array")
+    if np.any((arr != 0) & (arr != 1)):
+        raise SystemExit(f"{name} must be binary (0/1)")
+
+
+def _validate_positive_int(name: str, val: int) -> None:
+    if int(val) <= 0:
+        raise SystemExit(f"{name} must be a positive integer; got {val}")
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="hierarchical-naics-model",
@@ -108,11 +120,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     _ensure_columns(df_pl, [args.is_written_col, args.naics_col, args.zip_col])
 
     # Optional subset for speed
-    if args.subset is not None and args.subset < len(df_pl):
-        df_pl = df_pl.head(args.subset)
+    if args.subset is not None:
+        if int(args.subset) <= 0:
+            raise SystemExit("subset must be a positive integer")
+        if args.subset < len(df_pl):
+            df_pl = df_pl.head(args.subset)
 
     # Extract columns
     y = df_pl[args.is_written_col].to_numpy()
+    _validate_binary_series(y, name=args.is_written_col)
     naics = df_pl[args.naics_col].cast(pl.Utf8).to_list()
     zips = df_pl[args.zip_col].cast(pl.Utf8).to_list()
 
@@ -136,6 +152,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         zip_group_counts=list(zip_idx["group_counts"]),
         target_accept=float(args.target_accept),
     )
+
+    # Validate sampling params
+    _validate_positive_int("draws", args.draws)
+    _validate_positive_int("tune", args.tune)
+    _validate_positive_int("chains", args.chains)
+    _validate_positive_int("cores", args.cores)
 
     with model:
         idata = pm.sample(

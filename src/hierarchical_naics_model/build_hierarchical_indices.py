@@ -68,6 +68,9 @@ def build_hierarchical_indices(
         raise ValueError("`codes` cannot be empty.")
 
     codes_s = pd.Series(codes, dtype="string")
+    # Validate that no codes are null/NaN
+    if codes_s.isna().any():
+        raise ValueError("`codes` contains null/NaN values; please clean input.")
     max_len = int(codes_s.str.len().max())
 
     # Infer default cuts if not provided
@@ -78,6 +81,15 @@ def build_hierarchical_indices(
             cut_points = list(range(1, max_len + 1))
         else:
             cut_points = list(range(1, max_len + 1))
+
+    # Validate cut_points if provided: positive and strictly increasing
+    if cut_points is not None:
+        if len(cut_points) == 0:
+            raise ValueError("`cut_points` cannot be empty when provided.")
+        if any(int(c) <= 0 for c in cut_points):
+            raise ValueError("`cut_points` must be positive integers.")
+        if any(c2 <= c1 for c1, c2 in zip(cut_points, cut_points[1:])):
+            raise ValueError("`cut_points` must be strictly increasing.")
 
     full_len = max(max_len, max(cut_points))
 
