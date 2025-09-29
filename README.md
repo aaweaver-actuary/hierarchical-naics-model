@@ -47,10 +47,14 @@ df = pd.DataFrame({
 })
 ```
 
-To prepare hierarchical indices for modeling, choose cut points for each code family:
+To prepare hierarchical indices for modeling, you can either let the library infer cut points or specify them explicitly:
 
-- NAICS example: [2, 3, 6] (2-digit sector, 3-digit subsector, 6-digit industry)
-- ZIP example: [2, 3, 5]
+- Default inference:
+	- If codes have max length 6 (NAICS-like), uses [2, 3, 4, 5, 6].
+	- If codes have max length ≤ 5 (ZIP-like), uses [1, 2, ..., max_len].
+- Explicit examples:
+	- NAICS: [2, 3, 6] (2-digit sector, 3-digit subsector, 6-digit industry)
+	- ZIP: [2, 3, 5]
 
 Then build indices and the model:
 
@@ -61,8 +65,13 @@ from hierarchical_naics_model.build_conversion_model import build_conversion_mod
 naics_cuts = [2, 3, 6]
 zip_cuts = [2, 3, 5]
 
-naics_idx = build_hierarchical_indices(df["naics"].astype(str).tolist(), cut_points=naics_cuts)
-zip_idx = build_hierarchical_indices(df["zip"].astype(str).tolist(), cut_points=zip_cuts)
+# Using defaults (recommended in many cases):
+naics_idx = build_hierarchical_indices(df["naics"].astype(str).tolist())
+zip_idx = build_hierarchical_indices(df["zip"].astype(str).tolist())
+
+# Or explicitly specifying cut points:
+# naics_idx = build_hierarchical_indices(df["naics"].astype(str).tolist(), cut_points=[2,3,6])
+# zip_idx   = build_hierarchical_indices(df["zip"].astype(str).tolist(),   cut_points=[2,3,5])
 
 model = build_conversion_model(
 	y=df["is_written"].to_numpy(),

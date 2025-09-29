@@ -7,7 +7,7 @@ requires-python=">=3.10"
 version        ="0.1.0"
 
     [project.scripts]
-    hierarchical-naics-model="hierarchical_naics_model:main"
+    hierarchical-naics-model="hierarchical_naics_model.cli:main"
 
 [build-system]
 build-backend="uv_build"

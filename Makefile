@@ -7,6 +7,9 @@ COV_MIN := 95
 
 .PHONY: test
 test:
+	uv run ruff check --fix .
+	uv run ruff format .
+	uv run ty check .
 	uv run pytest \
 		--cov=$(SRC_DIR) \
 		--cov-report=term-missing \

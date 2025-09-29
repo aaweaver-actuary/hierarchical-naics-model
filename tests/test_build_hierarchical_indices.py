@@ -49,3 +49,21 @@ def test_prefix_fill_right_padding_behavior():
 
     assert "52" in uniq_no_pad_L6
     assert "520000" in uniq_pad_L6  # right-padded to width 6 using '0'
+
+
+def test_default_cut_points_naics_style():
+    # Mixed-length NAICS-like codes up to 6
+    codes = ["52", "52413", "511110", "511120", "51213"]
+    out = build_hierarchical_indices(codes, cut_points=None)
+    assert out["levels"] == ["L2", "L3", "L4", "L5", "L6"]
+    assert len(out["group_counts"]) == 5
+    # L2 should have at least one group (e.g., '51' and '52')
+    assert out["group_counts"][0] >= 1
+
+
+def test_default_cut_points_zip_style():
+    # ZIP-like codes up to 5 digits; ensure it uses 1..5 cuts
+    codes = ["0", "02", "021", "0213", "02139", "73301", "10001"]
+    out = build_hierarchical_indices(codes, cut_points=None)
+    assert out["levels"] == ["L1", "L2", "L3", "L4", "L5"]
+    assert len(out["group_counts"]) == 5

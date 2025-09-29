@@ -8,7 +8,7 @@ import pandas as pd
 def build_hierarchical_indices(
     codes: Sequence[str],
     *,
-    cut_points: Sequence[int],
+    cut_points: Sequence[int] | None = None,
     prefix_fill: str | None = None,
 ) -> Dict[str, object]:
     """
@@ -21,7 +21,10 @@ def build_hierarchical_indices(
         Sequence of raw codes (strings). Example NAICS: "511110"; ZIP: "30309".
     cut_points
         Monotone increasing character-lengths indicating hierarchy cuts.
-        Example for NAICS: [2, 3, 4, 5, 6]. Example for ZIP: [2, 3, 5].
+        If None, sensible defaults are inferred from the code lengths:
+        - If max length == 6 (NAICS-like), defaults to [2, 3, 4, 5, 6].
+        - If max length <= 5 (ZIP-like), defaults to [1, 2, ..., max_len].
+        - Otherwise, defaults to [1, 2, ..., max_len].
     prefix_fill
         Optional character used to right-pad shorter codes to the maximum length.
         If `None`, codes are used as-is. For numeric-like codes that might be
@@ -65,6 +68,16 @@ def build_hierarchical_indices(
 
     codes = pd.Series(codes, dtype="string")
     max_len = int(codes.str.len().max())
+
+    # Infer default cuts if not provided
+    if cut_points is None:
+        if max_len == 6:
+            cut_points = [2, 3, 4, 5, 6]
+        elif max_len <= 5:
+            cut_points = list(range(1, max_len + 1))
+        else:
+            cut_points = list(range(1, max_len + 1))
+
     full_len = max(max_len, max(cut_points))
 
     if prefix_fill is not None:
