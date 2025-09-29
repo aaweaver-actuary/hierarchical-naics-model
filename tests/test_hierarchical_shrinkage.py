@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import Dict
 
 import numpy as np
 import polars as pl
@@ -12,7 +11,6 @@ from hierarchical_naics_model.build_hierarchical_indices import (
     build_hierarchical_indices,
 )
 from hierarchical_naics_model.build_conversion_model import build_conversion_model
-import pytest
 
 
 def _posterior_group_mean(idata, rv_name: str) -> np.ndarray:
