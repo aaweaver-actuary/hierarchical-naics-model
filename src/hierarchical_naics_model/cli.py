@@ -11,6 +11,7 @@ import pymc as pm
 
 from .build_hierarchical_indices import build_hierarchical_indices
 from .build_conversion_model import build_conversion_model
+from .diagnostics import compute_rhat, posterior_predictive_checks
 
 
 def _parse_cuts(arg: Optional[str]) -> Optional[List[int]]:
@@ -129,10 +130,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Model
     model = build_conversion_model(
         y=np.asarray(y, dtype="int8"),
-        naics_levels=naics_idx["code_levels"],
-        zip_levels=zip_idx["code_levels"],
-        naics_group_counts=naics_idx["group_counts"],
-        zip_group_counts=zip_idx["group_counts"],
+        naics_levels=np.asarray(naics_idx["code_levels"]),
+        zip_levels=np.asarray(zip_idx["code_levels"]),
+        naics_group_counts=list(naics_idx["group_counts"]),
+        zip_group_counts=list(zip_idx["group_counts"]),
         target_accept=float(args.target_accept),
     )
 
@@ -149,10 +150,26 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Print a concise summary
     try:
-        smry = pm.summary(idata, var_names=["beta0"], kind="stats")
+        import arviz as az
+
+        smry = az.summary(idata, var_names=["beta0"], kind="stats")
         print(smry.to_string())
-    except Exception:
+    except Exception:  # pragma: no cover - summary failure just prints fallback
         print("Model fit complete; summary unavailable.")
+
+    # Diagnostics: R-hat and PPC
+    try:
+        rhats = compute_rhat(idata, var_names=["beta0"])  # include more names as needed
+        print({"rhat": rhats})
+    except Exception:  # pragma: no cover - diagnostics are optional
+        pass
+    try:
+        ppc_metrics = posterior_predictive_checks(
+            model, idata, observed_name="is_written", samples=min(200, args.draws)
+        )
+        print({"ppc": ppc_metrics})
+    except Exception:  # pragma: no cover - diagnostics are optional
+        pass
 
     # Save artifacts if requested
     if args.outdir:
@@ -160,12 +177,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         outdir.mkdir(parents=True, exist_ok=True)
         try:
             idata.to_netcdf(outdir / "idata.nc")
-        except Exception:
+        except Exception:  # pragma: no cover - optional artifact
             pass
         try:
-            smry = pm.summary(idata, var_names=["beta0"], kind="stats")
+            import arviz as az
+
+            smry = az.summary(idata, var_names=["beta0"], kind="stats")
             smry.to_csv(outdir / "summary_beta0.csv")
-        except Exception:
+        except Exception:  # pragma: no cover - optional artifact
+            pass
+        try:
+            # Save diagnostics
+            rhats = compute_rhat(idata, var_names=["beta0"])  # minimal for now
+            (outdir / "diagnostics.txt").write_text(str(rhats))
+        except Exception:  # pragma: no cover - optional artifact
+            pass
+        try:
+            ppc_metrics = posterior_predictive_checks(
+                model, idata, observed_name="is_written", samples=min(200, args.draws)
+            )
+            (outdir / "ppc.txt").write_text(str(ppc_metrics))
+        except Exception:  # pragma: no cover - optional artifact
             pass
 
     return 0

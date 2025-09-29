@@ -101,3 +101,17 @@ def model_inputs(synthetic_df, naics_indices, zip_indices) -> Dict[str, object]:
         naics_group_counts=naics_group_counts,
         zip_group_counts=zip_group_counts,
     )
+
+
+@pytest.fixture(scope="session")
+def fitted_model_idata(model_inputs):
+    """Build the model once and sample a modest posterior for diagnostics tests."""
+    import pymc as pm
+    from hierarchical_naics_model.build_conversion_model import build_conversion_model
+
+    model = build_conversion_model(**model_inputs)  # type: ignore[missing-argument]
+    with model:
+        idata = pm.sample(
+            draws=80, tune=80, chains=2, cores=1, progressbar=False, random_seed=11
+        )
+    return model, idata

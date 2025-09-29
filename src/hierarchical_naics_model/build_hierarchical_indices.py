@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from typing import Dict, List, Mapping, Sequence
+from typing import Dict, List, Mapping, Optional, Union
 import numpy as np
 import pandas as pd
+from .types import Strings, Integers
 
 
 def build_hierarchical_indices(
-    codes: Sequence[str],
+    codes: Strings,
     *,
-    cut_points: Sequence[int] | None = None,
-    prefix_fill: str | None = None,
-) -> Dict[str, object]:
+    cut_points: Optional[Integers] = None,
+    prefix_fill: Optional[str] = None,
+) -> Dict[str, Union[Strings, Integers]]:
     """
     Convert hierarchical categorical codes (e.g., NAICS or ZIP) into per-level
     integer indices suitable for hierarchical partial pooling.
@@ -66,8 +67,8 @@ def build_hierarchical_indices(
     if len(codes) == 0:
         raise ValueError("`codes` cannot be empty.")
 
-    codes = pd.Series(codes, dtype="string")
-    max_len = int(codes.str.len().max())
+    codes_s = pd.Series(codes, dtype="string")
+    max_len = int(codes_s.str.len().max())
 
     # Infer default cuts if not provided
     if cut_points is None:
@@ -81,16 +82,16 @@ def build_hierarchical_indices(
     full_len = max(max_len, max(cut_points))
 
     if prefix_fill is not None:
-        codes = codes.str.pad(width=full_len, side="right", fillchar=prefix_fill)
+        codes_s = codes_s.str.pad(width=full_len, side="right", fillchar=prefix_fill)
 
     levels: List[str] = [f"L{c}" for c in cut_points]
     unique_per_level: List[np.ndarray] = []
     maps: List[Mapping[str, int]] = []
     group_counts: List[int] = []
-    code_levels = np.empty((len(codes), len(cut_points)), dtype=np.int64)
+    code_levels = np.empty((len(codes_s), len(cut_points)), dtype=np.int64)
 
     for j, c in enumerate(cut_points):
-        labels = codes.str.slice(0, c)
+        labels = codes_s.str.slice(0, c)
         uniq = np.asarray(pd.Index(labels).unique(), dtype="object")
         # stable order via pandas categorical codes
         cat = pd.Categorical(labels, categories=uniq, ordered=False)

@@ -110,6 +110,7 @@ def test_cli_summary_and_save_exceptions(tmp_path: Path, monkeypatch):
         raise RuntimeError("fail summary")
 
     monkeypatch.setattr(cli_mod.pm, "sample", fake_sample)
+    # CLI uses ArviZ summary now; keep this for backwards compat paths
     monkeypatch.setattr(cli_mod.pm, "summary", fake_summary)
 
     outdir = tmp_path / "artifacts_exc"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, cast
 import numpy as np
 import pymc as pm
 
@@ -117,10 +117,10 @@ def build_conversion_model(
             zip_idx.append(arr)
 
         # Global intercept
-        beta0 = pm.Normal("beta0", 0.0, 1.5)
+        beta0: Any = pm.Normal("beta0", 0.0, 1.5)
 
         # Hierarchical NAICS random intercepts across levels
-        contrib_naics = 0.0
+        contrib_naics: Any = 0.0
         for j in range(L_naics):
             # hyperpriors per level
             if use_student_t:
@@ -136,10 +136,11 @@ def build_conversion_model(
                 shape=(naics_group_counts[j],),
                 dims=(f"NAICS_{j}",),
             )
-            contrib_naics = contrib_naics + a_j[naics_idx[j]]
+            # Cast to Any to appease static type checkers; valid at runtime
+            contrib_naics = contrib_naics + a_j[naics_idx[j]]  # type: ignore[operator]
 
         # Hierarchical ZIP random intercepts across levels
-        contrib_zip = 0.0
+        contrib_zip: Any = 0.0
         for j in range(L_zip):
             if use_student_t:
                 mu = pm.StudentT(f"zip_mu_{j}", nu=4.0, mu=0.0, sigma=0.5)
@@ -154,13 +155,14 @@ def build_conversion_model(
                 shape=(zip_group_counts[j],),
                 dims=(f"ZIP_{j}",),
             )
-            contrib_zip = contrib_zip + b_j[zip_idx[j]]
+            contrib_zip = contrib_zip + b_j[zip_idx[j]]  # type: ignore[operator]
 
         # Linear predictor and likelihood
-        eta = pm.Deterministic(
-            "eta", beta0 + contrib_naics + contrib_zip, dims=("obs_id",)
+        eta_expr: Any = (
+            cast(Any, beta0) + cast(Any, contrib_naics) + cast(Any, contrib_zip)
         )
-        p = pm.Deterministic("p", pm.math.sigmoid(eta), dims=("obs_id",))
+        eta = pm.Deterministic("eta", eta_expr, dims=("obs_id",))
+        p = pm.Deterministic("p", pm.math.sigmoid(eta), dims=("obs_id",))  # type: ignore[attr-defined]
         pm.Bernoulli("is_written", p=p, observed=y_obs, dims=("obs_id",))
 
         # Store a default sampling config on the model for convenience

@@ -67,3 +67,11 @@ def test_default_cut_points_zip_style():
     out = build_hierarchical_indices(codes, cut_points=None)
     assert out["levels"] == ["L1", "L2", "L3", "L4", "L5"]
     assert len(out["group_counts"]) == 5
+
+
+def test_no_prefix_fill_path():
+    # Ensure branch without prefix_fill still returns expected lengths
+    codes = ["12", "123", "1234", "2"]
+    out = build_hierarchical_indices(codes, cut_points=[1, 2, 3])
+    assert out["levels"] == ["L1", "L2", "L3"]
+    assert out["code_levels"].shape[1] == 3

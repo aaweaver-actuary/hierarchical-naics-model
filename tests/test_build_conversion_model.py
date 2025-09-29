@@ -7,7 +7,7 @@ from hierarchical_naics_model.build_conversion_model import build_conversion_mod
 
 
 def test_model_builds_and_dims(model_inputs):
-    model = build_conversion_model(**model_inputs)
+    model = build_conversion_model(**model_inputs)  # type: ignore[missing-argument]
     assert isinstance(model, pm.Model)
 
     with model:
@@ -27,11 +27,14 @@ def test_model_builds_and_dims(model_inputs):
 
 
 def test_prior_predictive_runs(model_inputs):
-    model = build_conversion_model(**model_inputs)
+    model = build_conversion_model(**model_inputs)  # type: ignore[missing-argument]
     with model:
         prior = pm.sample_prior_predictive(samples=100)
     # Check that prior predictive includes observed variable draws
-    y_draws = prior.prior_predictive.get("is_written")
+    if hasattr(prior, "prior_predictive"):
+        y_draws = prior.prior_predictive.get("is_written")  # type: ignore[attr-defined]
+    else:
+        y_draws = prior.get("is_written")  # type: ignore[call-arg]
     assert y_draws is not None
     # Shape: (chains?, draws, N) -> new PyMC returns (samples, N)
     arr = np.asarray(y_draws)
@@ -55,7 +58,7 @@ def test_posterior_sampling_smoke(model_inputs):
         "zip_group_counts": model_inputs["zip_group_counts"],
     }
 
-    model = build_conversion_model(**sub_inputs)
+    model = build_conversion_model(**sub_inputs)  # type: ignore[missing-argument]
     with model:
         idata = pm.sample(
             draws=100,
@@ -70,4 +73,4 @@ def test_posterior_sampling_smoke(model_inputs):
     # Basic sanity: posterior exists and has samples for key RVs
     assert "posterior" in idata.groups()
     for name in ["beta0", "eta", "p"]:
-        assert name in idata.posterior or name in idata.posterior.coords
+        assert name in idata.posterior or name in idata.posterior.coords  # type: ignore[attr-defined]

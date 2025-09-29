@@ -5,12 +5,15 @@ SRC_DIR := src/$(PACKAGE)
 
 COV_MIN := 95
 
-.PHONY: test
-test:
-	uv run ruff check --fix .
+lint: 
+	uv run ruff check .
 	uv run ruff format .
 	uv run ty check .
-	uv run pytest \
+
+.PHONY: test
+test:
+	make lint
+	uv run pytest -x \
 		--cov=$(SRC_DIR) \
 		--cov-report=term-missing \
 		--cov-report=html \

@@ -59,4 +59,4 @@ def test_end_to_end_pipeline():
     # 4) Validate posterior contains expected random variables and shapes
     assert "posterior" in idata.groups()
     for key in ["beta0", "eta", "p"]:
-        assert key in idata.posterior or key in idata.posterior.coords
+        assert key in idata.posterior or key in idata.posterior.coords  # type: ignore[attr-defined]
