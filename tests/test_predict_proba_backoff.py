@@ -70,6 +70,34 @@ def test_predict_proba_backoff_and_flags():
 def test_predict_proba_partial_backoff():
     # Some codes are only known at parent level
     # Use codes that only exist at parent level (not in level 1 or 2 maps)
+    df = pd.DataFrame({"naics": ["301", "401"], "zip": ["317", "427"]})
+    naics_level_maps = [
+        {"1": 0, "2": 1},  # Only root codes present
+        {},  # No codes at level 1
+        {},  # No codes at level 2
+    ]
+    zip_level_maps = [
+        {"1": 0, "2": 1},
+        {},
+        {},
+    ]
+    from hierarchical_naics_model.make_backoff_resolver import make_backoff_resolver
+
+    naics_resolver = make_backoff_resolver(
+        cut_points=[1, 2, 3],
+        level_maps=naics_level_maps,
+        prefix_fill="0",
+    )
+    zip_resolver = make_backoff_resolver(
+        cut_points=[1, 2, 3],
+        level_maps=zip_level_maps,
+        prefix_fill="0",
+    )
+    for i in range(2):
+        print(f"naics: {df['naics'][i]}, resolved: {naics_resolver(df['naics'][i])}")
+        print(f"zip: {df['zip'][i]}, resolved: {zip_resolver(df['zip'][i])}")
+    # Some codes are only known at parent level
+    # Use codes that only exist at parent level (not in level 1 or 2 maps)
     df = pd.DataFrame({"naics": ["103", "203"], "zip": ["117", "227"]})
     naics_level_maps = [
         {"1": 0, "2": 1},  # Only root codes present
@@ -120,27 +148,27 @@ def test_predict_proba_partial_backoff():
         log.debug(
             f"Row {i} backoff_zip: {[out[f'backoff_zip_{j}'][i] for j in range(3)]}"
         )
-    # All levels should be backoff except parent level
+    # All levels should fallback to parent index, so all backoff flags should be False
     for i in range(2):
         print(
             f"Row {i} backoff_naics: {[out[f'backoff_naics_{j}'][i] for j in range(3)]}"
         )
         print(f"Row {i} backoff_zip: {[out[f'backoff_zip_{j}'][i] for j in range(3)]}")
-        # Only parent level (level 0) is known
-        assert not out[f"backoff_naics_{0}"][i]
-        assert not out[f"backoff_zip_{0}"][i]
-        for j in [1, 2]:
-            assert out[f"backoff_naics_{j}"][i]
-            assert out[f"backoff_zip_{j}"][i]
-    # Eta should include only base contributions
+        for j in range(3):
+            assert not out[f"backoff_naics_{j}"][i]
+            assert not out[f"backoff_zip_{j}"][i]
+    # Eta should include all fallback delta contributions
     for i in range(2):
         expected_eta = effects["beta0"]
-        expected_eta += float(
-            effects["naics_base"].loc[naics_level_maps[0][df["naics"][i][0]]]
-        )
-        expected_eta += float(
-            effects["zip_base"].loc[zip_level_maps[0][df["zip"][i][0]]]
-        )
+        naics_idx = naics_level_maps[0][df["naics"][i][0]]
+        zip_idx = zip_level_maps[0][df["zip"][i][0]]
+        expected_eta += float(effects["naics_base"].loc[naics_idx])
+        expected_eta += float(effects["zip_base"].loc[zip_idx])
+        # Add all delta contributions using parent index
+        for delta_tbl in effects["naics_deltas"]:
+            expected_eta += float(delta_tbl.loc[naics_idx])
+        for delta_tbl in effects["zip_deltas"]:
+            expected_eta += float(delta_tbl.loc[zip_idx])
         assert np.isclose(out["eta"][i], expected_eta)
 
 

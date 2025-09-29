@@ -46,9 +46,8 @@ def make_backoff_resolver(
         out: List[int | None] = []
         log.debug(f"Resolving code: {code}")
         for j, c in enumerate(cut_points):
-            k = j
             idx_or_none = None
-            log.debug(f"  Level {j}: cut_point={c}")
+            k = j
             while k >= 0:
                 lbl = code[: cut_points[k]]
                 m = level_maps[k]
@@ -58,12 +57,12 @@ def make_backoff_resolver(
                     log.debug(f"      Found: idx={idx_or_none}")
                     break
                 k -= 1
-            # Guarantee None for missing
             if idx_or_none is None:
                 out.append(None)
+                log.debug("      Not found: None")
             else:
                 out.append(idx_or_none)
-            log.debug(f"  Result for level {j}: {idx_or_none}")
+            log.debug(f"  Result for level {j}: {out[-1]}")
         log.debug(f"Resolved indices: {out}")
         return out
 

@@ -114,10 +114,27 @@ def predict_proba(
                 log.debug(f"Row {i} ZIP delta level {m} backoff: True")
 
     p = 1.0 / (1.0 + np.exp(-eta))
+    # Final sweep: set backoff flags to True if index is None or NaN
+    for i in range(n):
+        for j in range(len(naics_cut_points)):
+            idx_val = naics_idx[i][j] if len(naics_idx[i]) > j else None
+            print(
+                f"Sweep NAICS: i={i}, j={j}, idx_val={idx_val}, before={backoff_naics[i][j]}"
+            )
+            if idx_val is None or pd.isna(idx_val):
+                backoff_naics[i][j] = True
+                print(f"  Set backoff_naics[{i}][{j}] = True")
+        for m in range(len(zip_cut_points)):
+            idx_val = zip_idx[i][m] if len(zip_idx[i]) > m else None
+            print(
+                f"Sweep ZIP: i={i}, m={m}, idx_val={idx_val}, before={backoff_zip[i][m]}"
+            )
+            if idx_val is None or pd.isna(idx_val):
+                backoff_zip[i][m] = True
+                print(f"  Set backoff_zip[{i}][{m}] = True")
     out = df_new.copy()
     out["eta"] = eta
     out["p"] = p
-    # Force all flags to Python bools after assignment
     backoff_naics = [[bool(x) for x in row] for row in backoff_naics]
     backoff_zip = [[bool(x) for x in row] for row in backoff_zip]
     for j in range(len(naics_cut_points)):
