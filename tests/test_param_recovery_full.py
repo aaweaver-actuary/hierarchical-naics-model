@@ -93,9 +93,17 @@ def test_full_parameter_recovery():
     zip_mu_hat = _posterior_mean(idata, "zip_mu_0")
     zip_sigma_hat = _posterior_mean(idata, "zip_sigma_0")
 
-    # Tolerances acknowledge finite N and hierarchical shrinkage
-    assert abs(beta0_hat - beta0_true) < 0.15
-    assert abs(naics_mu_hat - naics_mu_true) < 0.15
-    assert abs(zip_mu_hat - zip_mu_true) < 0.15
-    assert abs(naics_sigma_hat - naics_sigma_true) < 0.20
-    assert abs(zip_sigma_hat - zip_sigma_true) < 0.20
+    # Note: beta0 and per-level mu terms are not separately identifiable;
+    # the identifiable baseline is their sum.
+    baseline_true = beta0_true + naics_mu_true + zip_mu_true
+    baseline_hat = beta0_hat + naics_mu_hat + zip_mu_hat
+
+    # With finite groups (5), sigma is identified via the realized group effects.
+    # Compare to the empirical SD of the sampled group effects rather than the population sigma.
+    sd_naics_emp = float(np.std(a_naics_true, ddof=1))
+    sd_zip_emp = float(np.std(b_zip_true, ddof=1))
+
+    # Tolerances acknowledge finite N, shrinkage, and MCMC error
+    assert abs(baseline_hat - baseline_true) < 0.15
+    assert abs(naics_sigma_hat - sd_naics_emp) < 0.20
+    assert abs(zip_sigma_hat - sd_zip_emp) < 0.20

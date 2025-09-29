@@ -22,3 +22,7 @@ test:
 
 test-rec:
 	RUN_RECOVERY=1 make test
+
+test-rec-only:
+	make lint
+	RUN_RECOVERY=1 uv run pytest tests/test_param_recovery_full.py -x
