@@ -1,5 +1,12 @@
 [project]
-dependencies   =["certifi>=2025.8.3", "pandas>=2.3.2", "polars>=1.33.1", "pymc>=5.0.0"]
+dependencies   =[
+    "certifi>=2025.8.3",
+    "pandas>=2.3.2",
+    "polars>=1.33.1",
+    "pymc>=5.0.0",
+    "pytest-lazy-fixture>=0.6.3",
+    "xarray>=2025.6.1",
+]
 description    ="Add your description here"
 name           ="hierarchical-naics-model"
 readme         ="README.md"

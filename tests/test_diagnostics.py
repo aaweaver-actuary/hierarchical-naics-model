@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pymc as pm
+import pytest
 
 from hierarchical_naics_model.diagnostics import (
     compute_rhat,
@@ -13,24 +14,45 @@ from hierarchical_naics_model.diagnostics import (
 from hierarchical_naics_model.build_conversion_model import build_conversion_model
 
 
-def test_compute_rhat_on_simple_model(fitted_model_idata):
+@pytest.fixture
+def simple_model_rhat(fitted_model_idata):
     _model, idata = fitted_model_idata
-    rhats = compute_rhat(idata, var_names=["beta0"])
-    assert "beta0" in rhats
-    assert np.isfinite(rhats["beta0"]) and rhats["beta0"] > 0
+    return compute_rhat(idata, var_names=["beta0"])
 
 
-def test_ppc_metrics(fitted_model_idata):
+def test_rhat_contains_beta0_key_in_simple_model(simple_model_rhat):
+    assert "beta0" in simple_model_rhat
+
+
+def test_rhat_value_is_finite_and_positive_for_beta0_in_simple_model(simple_model_rhat):
+    assert np.isfinite(simple_model_rhat["beta0"]) and simple_model_rhat["beta0"] > 0
+
+
+@pytest.fixture
+def ppc_metrics_result(fitted_model_idata):
     model, idata = fitted_model_idata
-    metrics = posterior_predictive_checks(
+    return posterior_predictive_checks(
         model, idata, observed_name="is_written", samples=50
     )
-    # Basic sanity: means present and within [0,1]
-    assert "mean_ppc" in metrics
-    assert 0.0 <= metrics["mean_ppc"] <= 1.0
-    if "mean_obs" in metrics:
-        assert 0.0 <= metrics["mean_obs"] <= 1.0
-        assert metrics["abs_err_mean"] >= 0
+
+
+def test_ppc_metrics_contains_mean_ppc_key(ppc_metrics_result):
+    assert "mean_ppc" in ppc_metrics_result
+
+
+def test_ppc_metrics_mean_ppc_in_unit_interval(ppc_metrics_result):
+    assert 0.0 <= ppc_metrics_result["mean_ppc"] <= 1.0
+
+
+@pytest.mark.parametrize("key", ["mean_obs"])
+def test_ppc_metrics_mean_obs_in_unit_interval_if_present(ppc_metrics_result, key):
+    if key in ppc_metrics_result:
+        assert 0.0 <= ppc_metrics_result[key] <= 1.0
+
+
+def test_ppc_metrics_abs_err_mean_non_negative_if_present(ppc_metrics_result):
+    if "abs_err_mean" in ppc_metrics_result:
+        assert ppc_metrics_result["abs_err_mean"] >= 0
 
 
 def test_compute_rhat_fallbacks(monkeypatch, model_inputs):
@@ -102,13 +124,65 @@ def test_ppc_extract_observed_fallback(monkeypatch, model_inputs):
     assert "mean_ppc" in metrics and "mean_obs" not in metrics
 
 
-def test_sampling_helpers_and_1d_metrics(fitted_model_idata):
-    # Exercise sample_ppc and extract_observed directly and cover 1D metrics path
+@pytest.fixture
+def sampled_ppc_and_observed(fitted_model_idata):
+    # Returns model, idata, ppc, y_obs, y_ppc_1d for parametrized tests
     model, idata = fitted_model_idata
     ppc = sample_ppc(model, idata, observed_name="is_written", random_seed=123)
-    assert "is_written" in ppc
     y_obs = extract_observed(idata, observed_name="is_written")
-    # Create a 1D y_ppc to trigger the 1D branch in compute_ppc_metrics
     y_ppc_1d = np.asarray(ppc["is_written"]).reshape(-1)
-    metrics = compute_ppc_metrics(y_ppc_1d, y_obs)
+    return {
+        "model": model,
+        "idata": idata,
+        "ppc": ppc,
+        "y_obs": y_obs,
+        "y_ppc_1d": y_ppc_1d,
+    }
+
+
+def test_sample_ppc_returns_is_written_key(sampled_ppc_and_observed):
+    assert "is_written" in sampled_ppc_and_observed["ppc"]
+
+
+def test_extract_observed_returns_non_empty_array(sampled_ppc_and_observed):
+    y_obs = sampled_ppc_and_observed["y_obs"]
+    assert y_obs is not None and np.size(y_obs) > 0
+
+
+def test_compute_ppc_metrics_returns_mean_ppc_key_for_1d_ppc(sampled_ppc_and_observed):
+    metrics = compute_ppc_metrics(
+        sampled_ppc_and_observed["y_ppc_1d"], sampled_ppc_and_observed["y_obs"]
+    )
     assert "mean_ppc" in metrics
+
+
+@pytest.mark.parametrize(
+    "ppc_shape",
+    [
+        (10,),  # 1D array
+        (2, 10),  # 2D array
+        (2, 5, 2),  # 3D array
+    ],
+)
+def test_compute_ppc_metrics_handles_various_ppc_shapes(
+    ppc_shape, sampled_ppc_and_observed
+):
+    # Edge case: test compute_ppc_metrics with different shapes
+    y_ppc = np.random.randint(0, 2, size=ppc_shape)
+    y_obs = sampled_ppc_and_observed["y_obs"]
+    metrics = compute_ppc_metrics(y_ppc, y_obs)
+    assert "mean_ppc" in metrics
+
+
+@pytest.mark.parametrize(
+    "y_ppc, y_obs, expected",
+    [
+        (np.zeros(10), np.zeros(10), 0.0),  # All zeros
+        (np.ones(10), np.ones(10), 1.0),  # All ones
+        (np.ones(10), np.zeros(10), 1.0),  # All ones vs all zeros
+        (np.zeros(10), np.ones(10), 0.0),  # All zeros vs all ones
+    ],
+)
+def test_compute_ppc_metrics_mean_ppc_matches_expected(y_ppc, y_obs, expected):
+    metrics = compute_ppc_metrics(y_ppc, y_obs)
+    assert metrics["mean_ppc"] == expected

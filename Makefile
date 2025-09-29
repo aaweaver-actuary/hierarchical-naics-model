@@ -12,13 +12,14 @@ lint:
 
 .PHONY: test
 test:
-	make lint
 	uv run pytest -x \
 		--cov=$(SRC_DIR) \
 		--cov-report=term-missing \
 		--cov-report=html \
 		--cov-report=lcov \
 		--cov-fail-under=$(COV_MIN)
+
+check: lint test
 
 test-rec:
 	RUN_RECOVERY=1 make test

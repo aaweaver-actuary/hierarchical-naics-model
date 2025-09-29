@@ -1,118 +1,103 @@
 from __future__ import annotations
 
-from typing import Dict, List, Mapping, Optional, Union
+from typing import List, Mapping, TypedDict
 import numpy as np
 import pandas as pd
 from .types import Strings, Integers
 
 
+class HierIndex(TypedDict):
+    levels: List[str]
+    code_levels: np.ndarray  # (N, L) obs-level integer indices per level
+    unique_per_level: List[np.ndarray]  # string labels per level in index order
+    maps: List[Mapping[str, int]]  # level label -> int index
+    group_counts: List[int]  # # groups per level
+    parent_index_per_level: List[np.ndarray | None]  # len L; array for j>0 else None
+    max_len: int
+    cut_points: List[int]
+
+
 def build_hierarchical_indices(
     codes: Strings,
     *,
-    cut_points: Optional[Integers] = None,
-    prefix_fill: Optional[str] = None,
-) -> Dict[str, Union[Strings, Integers]]:
+    cut_points: Integers,
+    prefix_fill: str = "0",
+) -> HierIndex:
     """
-    Convert hierarchical categorical codes (e.g., NAICS or ZIP) into per-level
-    integer indices suitable for hierarchical partial pooling.
+    Convert hierarchical codes (e.g., NAICS, ZIP) into per-level integer indices,
+    **with prefix padding** and **child->parent pointers**.
 
     Parameters
     ----------
     codes
-        Sequence of raw codes (strings). Example NAICS: "511110"; ZIP: "30309".
+        Raw code strings.
     cut_points
-        Monotone increasing character-lengths indicating hierarchy cuts.
-        If None, sensible defaults are inferred from the code lengths:
-        - If max length == 6 (NAICS-like), defaults to [2, 3, 4, 5, 6].
-        - If max length <= 5 (ZIP-like), defaults to [1, 2, ..., max_len].
-        - Otherwise, defaults to [1, 2, ..., max_len].
+        Monotone increasing lengths that define the hierarchy (e.g., [2,3,4,5,6]).
     prefix_fill
-        Optional character used to right-pad shorter codes to the maximum length.
-        If `None`, codes are used as-is. For numeric-like codes that might be
-        missing trailing digits, pass `'0'` to ensure stable prefix extraction.
+        Character to RIGHT-pad codes so slicing at deeper levels is safe
+        (default '0').
 
     Returns
     -------
-    out : dict
-        - 'levels': list[str]
-            Names "L{cut}" for each cut (e.g., "L2","L3","L5").
-        - 'code_levels': np.ndarray, shape (N, L)
-            At row i and level ℓ, the integer group index for codes[i] at that level.
-        - 'unique_per_level': list[np.ndarray]
-            Unique *string* labels at each level in index order.
-        - 'maps': list[Mapping[str, int]]
-            List of dicts mapping level label -> integer index.
-        - 'group_counts': list[int]
-            Number of unique groups at each level.
-        - 'max_len': int
-            The maximum length used when slicing prefixes.
-
-    Notes
-    -----
-    - This function does not assume NAICS or ZIP specifically. It only slices
-      prefixes at the `cut_points` you pass and ranks unique labels to integers.
-    - You can call this separately for NAICS and ZIP and then pass the outputs
-      into the PyMC model builder.
-
-    Examples
-    --------
-    >>> build = build_hierarchical_indices(["511110","511120","512130"], cut_points=[2,3,6])
-    >>> build["levels"]
-    ['L2', 'L3', 'L6']
-    >>> build["group_counts"]  # 2-digit groups, 3-digit groups, 6-digit groups
-    [1, 2, 3]
-    >>> build["code_levels"].shape
-    (3, 3)
+    HierIndex
+        - levels: names ["L{c}"] for each cut
+        - code_levels: (N, L) int indices per observation per level
+        - unique_per_level: list of np.ndarray of labels in index order
+        - maps: list of dict[label->index] per level
+        - group_counts: # unique labels per level
+        - parent_index_per_level: for j>0, np.ndarray[Kj] that maps each group
+          at level j to its parent group index at level j-1. For level 0: None.
+        - max_len, cut_points
     """
     if len(codes) == 0:
         raise ValueError("`codes` cannot be empty.")
+    if any(c <= 0 for c in cut_points):
+        raise ValueError("cut_points must be positive.")
 
-    codes_s = pd.Series(codes, dtype="string")
-    # Validate that no codes are null/NaN
-    if codes_s.isna().any():
-        raise ValueError("`codes` contains null/NaN values; please clean input.")
-    max_len = int(codes_s.str.len().max())
+    codes = pd.Series(codes, dtype="string")
+    max_code_len = int(codes.str.len().max())
+    full_len = max(max_code_len, max(cut_points))
 
-    # Infer default cuts if not provided
-    if cut_points is None:
-        if max_len == 6:
-            cut_points = [2, 3, 4, 5, 6]
-        elif max_len <= 5:
-            cut_points = list(range(1, max_len + 1))
-        else:
-            cut_points = list(range(1, max_len + 1))
-
-    # Validate cut_points if provided: positive and strictly increasing
-    if cut_points is not None:
-        if len(cut_points) == 0:
-            raise ValueError("`cut_points` cannot be empty when provided.")
-        if any(int(c) <= 0 for c in cut_points):
-            raise ValueError("`cut_points` must be positive integers.")
-        if any(c2 <= c1 for c1, c2 in zip(cut_points, cut_points[1:])):
-            raise ValueError("`cut_points` must be strictly increasing.")
-
-    full_len = max(max_len, max(cut_points))
-
-    if prefix_fill is not None:
-        codes_s = codes_s.str.pad(width=full_len, side="right", fillchar=prefix_fill)
+    # RIGHT-pad to protect slicing (e.g., '52' -> '520000' for NAICS up to 6)
+    if prefix_fill:
+        codes = codes.str.pad(width=full_len, side="right", fillchar=prefix_fill)
 
     levels: List[str] = [f"L{c}" for c in cut_points]
     unique_per_level: List[np.ndarray] = []
     maps: List[Mapping[str, int]] = []
     group_counts: List[int] = []
-    code_levels = np.empty((len(codes_s), len(cut_points)), dtype=np.int64)
+    code_levels = np.empty((len(codes), len(cut_points)), dtype=np.int64)
 
     for j, c in enumerate(cut_points):
-        labels = codes_s.str.slice(0, c)
-        uniq = np.asarray(pd.Index(labels).unique(), dtype="object")
-        # stable order via pandas categorical codes
+        labels = codes.str.slice(0, c)
+        uniq = pd.Index(labels).unique()
         cat = pd.Categorical(labels, categories=uniq, ordered=False)
-        # cat.codes may already be an ndarray; ensure ndarray and int dtype
-        idx = np.asarray(cat.codes, dtype=np.int64)  # 0..K-1
+        idx = cat.codes
         code_levels[:, j] = idx
-        unique_per_level.append(uniq)
-        maps.append({u: i for i, u in enumerate(uniq)})
+        lab_arr = np.asarray(uniq, dtype="object")
+        unique_per_level.append(lab_arr)
+        maps.append({lab: i for i, lab in enumerate(lab_arr)})
         group_counts.append(len(uniq))
+
+    # Build child->parent pointers between consecutive levels
+    parent_index_per_level: List[np.ndarray | None] = [None]
+    for j in range(1, len(cut_points)):
+        child_labels = unique_per_level[j]
+        parent_map = maps[j - 1]
+        parent_cut = cut_points[j - 1]
+        parent_idx_vec = np.empty(len(child_labels), dtype=np.int64)
+        for g, child_lab in enumerate(child_labels):
+            parent_lab = str(child_lab)[:parent_cut]
+            try:
+                parent_idx_vec[g] = parent_map[parent_lab]
+            except KeyError as e:
+                # Should not happen with padding + consistent slicing,
+                # but guard anyway.
+                raise RuntimeError(
+                    f"Parent label '{parent_lab}' not found at level {j - 1} "
+                    f"for child '{child_lab}' at level {j}."
+                ) from e
+        parent_index_per_level.append(parent_idx_vec)
 
     return {
         "levels": levels,
@@ -120,5 +105,7 @@ def build_hierarchical_indices(
         "unique_per_level": unique_per_level,
         "maps": maps,
         "group_counts": group_counts,
+        "parent_index_per_level": parent_index_per_level,
         "max_len": full_len,
+        "cut_points": list(cut_points),
     }

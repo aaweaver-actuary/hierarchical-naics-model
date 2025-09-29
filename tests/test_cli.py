@@ -9,8 +9,8 @@ import pytest
 from hierarchical_naics_model.cli import main as cli_main
 
 
-def test_cli_smoke_and_artifacts(tmp_path: Path):
-    # Create a tiny dataset as Parquet
+@pytest.fixture
+def tiny_parquet(tmp_path):
     df = pl.DataFrame(
         {
             "is_written": [0, 1, 0, 1, 0, 1],
@@ -20,13 +20,53 @@ def test_cli_smoke_and_artifacts(tmp_path: Path):
     )
     pq = tmp_path / "toy.parquet"
     df.write_parquet(str(pq))
+    return pq
 
-    # Run the CLI with subset and low draws for speed
-    outdir = tmp_path / "artifacts"
+
+@pytest.fixture
+def output_dir(tmp_path):
+    return tmp_path / "artifacts"
+
+
+@pytest.mark.parametrize(
+    "subset,draws,tune,chains,cores,random_seed",
+    [
+        (4, 50, 50, 2, 1, 123),
+        (2, 10, 10, 1, 1, 42),
+    ],
+)
+def test_cli_smoke_returns_zero_and_writes_artifacts(
+    tiny_parquet, output_dir, subset, draws, tune, chains, cores, random_seed
+):
     rc = cli_main(
         [
             "--input",
-            str(pq),
+            str(tiny_parquet),
+            "--subset",
+            str(subset),
+            "--draws",
+            str(draws),
+            "--tune",
+            str(tune),
+            "--chains",
+            str(chains),
+            "--cores",
+            str(cores),
+            "--random-seed",
+            str(random_seed),
+            "--outdir",
+            str(output_dir),
+        ]
+    )
+    assert rc == 0
+
+
+@pytest.mark.parametrize("artifact", ["summary_beta0.csv", "idata.nc"])
+def test_cli_writes_expected_artifacts(tiny_parquet, output_dir, artifact):
+    cli_main(
+        [
+            "--input",
+            str(tiny_parquet),
             "--subset",
             "4",
             "--draws",
@@ -40,12 +80,10 @@ def test_cli_smoke_and_artifacts(tmp_path: Path):
             "--random-seed",
             "123",
             "--outdir",
-            str(outdir),
+            str(output_dir),
         ]
     )
-    assert rc == 0
-    # Ensure some artifact was written
-    assert (outdir / "summary_beta0.csv").exists() or (outdir / "idata.nc").exists()
+    assert (output_dir / artifact).exists()
 
 
 def test_cli_invalid_cut_points(tmp_path: Path):

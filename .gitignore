@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+.repomixignore
+repomix-output.xml
+repomix.config.json
+coverage.lcov
+.pytest_cache/
+.ruff_cache/
