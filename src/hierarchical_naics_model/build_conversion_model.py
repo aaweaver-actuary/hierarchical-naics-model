@@ -84,9 +84,6 @@ def build_conversion_model(
     model : pm.Model
         A compiled PyMC model (not sampled).
     """
-    if pm is None:
-        raise RuntimeError("PyMC is not installed in this environment.")
-
     y = np.asarray(y, dtype="int8")
     N = y.shape[0]
     L_naics = naics_levels.shape[1]
