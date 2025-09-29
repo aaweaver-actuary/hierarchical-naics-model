@@ -78,11 +78,7 @@ def sample_ppc(
 def extract_observed(
     idata: az.InferenceData, observed_name: str = "is_written"
 ) -> Optional[np.ndarray]:
-    """Extract observed data array from InferenceData if present.
-
-    Note: We purposefully do not fall back to direct group access when
-    az.extract fails, to allow tests to simulate missing-observed scenarios.
-    """
+    """Extract observed data array from InferenceData if present."""
     try:
         extracted = az.extract(idata, group="observed_data")
         # Primary: requested name

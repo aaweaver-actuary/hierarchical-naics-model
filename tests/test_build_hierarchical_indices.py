@@ -92,7 +92,7 @@ def codes_and_cut_points_for_padding():
     codes = ["52", "51213", "511110"]  # varying lengths 2,5,6
     cut_points = [2, 3, 6]
     out_no_pad = build_hierarchical_indices(
-        codes, cut_points=cut_points, prefix_fill=None
+        codes, cut_points=cut_points, prefix_fill=""
     )
     out_pad = build_hierarchical_indices(codes, cut_points=cut_points, prefix_fill="0")
     return {
@@ -104,32 +104,15 @@ def codes_and_cut_points_for_padding():
 
 
 @pytest.mark.parametrize(
-    "level_idx,expected_no_pad,expected_pad",
+    "level_idx,expected_pad",
     [
-        (2, "52", "520000"),  # L6: "52" (no pad), "520000" (pad)
-        (1, "52", "520"),  # L3: "52" (no pad), right-pad → "520"
-        (0, "52", "52"),  # L2: "52" (no pad), "52" (pad, no effect)
+        (2, "520000"),  # L6: "520000" (pad)
+        (1, "520"),  # L3: right-pad → "520"
+        (0, "52"),  # L2: "52" (pad, no effect)
     ],
 )
-def test_unique_per_level_contains_expected_label_without_padding(
-    codes_and_cut_points_for_padding, level_idx, expected_no_pad, expected_pad
-):
-    uniq_no_pad = set(
-        codes_and_cut_points_for_padding["out_no_pad"]["unique_per_level"][level_idx]
-    )
-    assert expected_no_pad in uniq_no_pad
-
-
-@pytest.mark.parametrize(
-    "level_idx,expected_no_pad,expected_pad",
-    [
-        (2, "52", "520000"),  # L6: "52" (no pad), "520000" (pad)
-        (1, "52", "520"),  # L3: "52" (no pad), right-pad → "520"
-        (0, "52", "52"),  # L2: "52" (no pad), "52" (pad, no effect)
-    ],
-)
-def test_unique_per_level_contains_expected_label_with_right_padding(
-    codes_and_cut_points_for_padding, level_idx, expected_no_pad, expected_pad
+def test_unique_per_level_contains_expected_label_with_padding(
+    codes_and_cut_points_for_padding, level_idx, expected_pad
 ):
     uniq_pad = set(
         codes_and_cut_points_for_padding["out_pad"]["unique_per_level"][level_idx]
@@ -138,13 +121,30 @@ def test_unique_per_level_contains_expected_label_with_right_padding(
 
 
 @pytest.mark.parametrize(
+    "level_idx,expected_no_pad",
+    [
+        (2, "52"),  # L6: "52" (no pad)
+        (1, "52"),  # L3: "52" (no pad)
+        (0, "52"),  # L2: "52" (no pad)
+    ],
+)
+def test_unique_per_level_contains_expected_label_without_padding(
+    codes_and_cut_points_for_padding, level_idx, expected_no_pad
+):
+    uniq_no_pad = set(
+        codes_and_cut_points_for_padding["out_no_pad"]["unique_per_level"][level_idx]
+    )
+    assert expected_no_pad in uniq_no_pad
+
+
+@pytest.mark.parametrize(
     "codes,cut_points,prefix_fill,expected",
     [
-        ([""], [2], None, ""),  # empty code, no pad
+        ([""], [2], "", ""),  # empty code, no pad
         ([""], [2], "0", "00"),  # empty code, pad to length 2
-        (["1"], [2], None, "1"),  # short code, no pad
+        (["1"], [2], "", "1"),  # short code, no pad
         (["1"], [2], "0", "10"),  # short code, pad to length 2
-        (["123"], [2], None, "12"),  # longer code, no pad
+        (["123"], [2], "", "12"),  # longer code, no pad
         (["123"], [2], "0", "12"),  # longer code, pad, but no effect
     ],
 )

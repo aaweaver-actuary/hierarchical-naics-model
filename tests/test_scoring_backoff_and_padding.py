@@ -19,7 +19,8 @@ def train_data():
     idx_z = build_hierarchical_indices(train_zip, cut_points=[2, 3, 5], prefix_fill="0")
     effects = {
         "beta0": -1.0,
-        "naics_base": pd.Series([0.2], index=[0]),
+        # Provide both possible indices for base effects to match backoff resolution
+        "naics_base": pd.Series([0.2, 0.0], index=[0, 1]),
         "naics_deltas": [
             pd.Series([0.05, -0.05], index=[0, 1]),
             pd.Series([0.10, 0.00, -0.10], index=[0, 1, 2]),

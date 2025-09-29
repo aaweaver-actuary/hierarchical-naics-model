@@ -1,5 +1,8 @@
 from __future__ import annotations
 from typing import List, Mapping, Sequence
+from .logger import get_logger
+
+log = get_logger(__name__)
 
 
 def make_backoff_resolver(
@@ -41,18 +44,27 @@ def make_backoff_resolver(
             code = code.ljust(max_len, prefix_fill)
 
         out: List[int | None] = []
+        log.debug(f"Resolving code: {code}")
         for j, c in enumerate(cut_points):
-            # attempt exact level, else parent, etc.
             k = j
             idx_or_none = None
+            log.debug(f"  Level {j}: cut_point={c}")
             while k >= 0:
                 lbl = code[: cut_points[k]]
                 m = level_maps[k]
+                log.debug(f"    Try level {k}: lbl={lbl}, map_keys={list(m.keys())}")
                 if lbl in m:
                     idx_or_none = m[lbl]
+                    log.debug(f"      Found: idx={idx_or_none}")
                     break
                 k -= 1
-            out.append(idx_or_none)
+            # Guarantee None for missing
+            if idx_or_none is None:
+                out.append(None)
+            else:
+                out.append(idx_or_none)
+            log.debug(f"  Result for level {j}: {idx_or_none}")
+        log.debug(f"Resolved indices: {out}")
         return out
 
     return resolve

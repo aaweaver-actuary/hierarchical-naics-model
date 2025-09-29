@@ -21,7 +21,7 @@ def build_hierarchical_indices(
     codes: Strings,
     *,
     cut_points: Optional[Integers] = None,
-    prefix_fill: Optional[str] = "0",
+    prefix_fill: Optional[str] = None,
 ) -> HierIndex:
     """
     Convert hierarchical codes (e.g., NAICS, ZIP) into per-level integer indices,
@@ -34,8 +34,8 @@ def build_hierarchical_indices(
     cut_points
         Monotone increasing lengths that define the hierarchy (e.g., [2,3,4,5,6]).
     prefix_fill
-        Character to RIGHT-pad codes so slicing at deeper levels is safe
-        (default '0').
+        Character to RIGHT-pad codes so slicing at deeper levels is safe.
+        If None, defaults to '0'. To disable, pass empty string ('').
 
     Returns
     -------
@@ -75,7 +75,9 @@ def build_hierarchical_indices(
 
     full_len = max(max_code_len, max(cut_points))
 
-    # RIGHT-pad to protect slicing (e.g., '52' -> '520000' for NAICS up to 6)
+    # Enforce prefix_fill='0' by default unless explicitly disabled
+    if prefix_fill is None:
+        prefix_fill = "0"
     if prefix_fill:
         codes = codes.str.pad(width=full_len, side="right", fillchar=prefix_fill)
 

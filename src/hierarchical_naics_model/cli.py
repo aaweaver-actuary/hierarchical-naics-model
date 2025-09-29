@@ -137,10 +137,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     zip_cuts = _parse_cuts(args.zip_cuts)
 
     naics_idx = build_hierarchical_indices(
-        naics, cut_points=naics_cuts, prefix_fill=args.prefix_fill_naics
+        naics,
+        cut_points=naics_cuts,
+        prefix_fill=args.prefix_fill_naics
+        if args.prefix_fill_naics is not None
+        else "0",
     )
     zip_idx = build_hierarchical_indices(
-        zips, cut_points=zip_cuts, prefix_fill=args.prefix_fill_zip
+        zips,
+        cut_points=zip_cuts,
+        prefix_fill=args.prefix_fill_zip if args.prefix_fill_zip is not None else "0",
     )
 
     # Model
