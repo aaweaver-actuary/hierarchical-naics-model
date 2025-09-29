@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Sequence
 import numpy as np
-
-try:
-    import pymc as pm
-    import pytensor.tensor as pt
-except Exception as _e:  # pragma: no cover - to allow import when PyMC isn't installed
-    pm = None  # type: ignore
+import pymc as pm
 
 
 def _noncentered_normal(name: str, mu, sigma, shape, dims=None):

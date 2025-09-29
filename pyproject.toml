@@ -1,29 +1,28 @@
 [project]
-name = "hierarchical-naics-model"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-authors = [
-    { name = "=", email = "=" }
-]
-requires-python = ">=3.12"
-dependencies = [
+dependencies=[
     "certifi>=2025.8.3",
     "pandas>=2.3.2",
     "polars>=1.33.1",
+    "pymc>=4.4.0",
+    "pytensor>=2.32.0",
 ]
+description="Add your description here"
+name="hierarchical-naics-model"
+readme="README.md"
+requires-python=">=3.10"
+version="0.1.0"
 
-[project.scripts]
-hierarchical-naics-model = "hierarchical_naics_model:main"
+    [project.scripts]
+    hierarchical-naics-model="hierarchical_naics_model:main"
 
 [build-system]
-requires = ["uv_build>=0.8.22,<0.9.0"]
-build-backend = "uv_build"
+build-backend="uv_build"
+requires     =["uv_build>=0.8.22,<0.9.0"]
 
 [dependency-groups]
-dev = [
-    "pytest>=8.4.2",
+dev=[
     "pytest-cov>=7.0.0",
+    "pytest>=8.4.2",
     "radon>=6.0.1",
     "ruff>=0.13.2",
     "ty>=0.0.1a21",
