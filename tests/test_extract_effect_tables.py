@@ -8,7 +8,6 @@ from typing import List, cast
 
 from hierarchical_naics_model.extract_effect_tables import extract_effect_tables
 import pytest
-from pytest_lazyfixture import lazy_fixture
 
 
 class _FakeIdata:
@@ -87,14 +86,8 @@ def extracted_without_zip(idata_without_zip):
     return extract_effect_tables(idata_without_zip)
 
 
-@pytest.mark.parametrize(
-    "expected,extracted",
-    [
-        (1.23, lazy_fixture("extracted_with_zip")),
-    ],
-)
-def test_extract_effect_tables_beta0_mean_is_correct(expected, extracted):
-    assert np.isclose(extracted["beta0"], expected)
+def test_extract_effect_tables_beta0_mean_is_correct(extracted_with_zip):
+    assert np.isclose(extracted_with_zip["beta0"], 1.23)
 
 
 @pytest.mark.parametrize(

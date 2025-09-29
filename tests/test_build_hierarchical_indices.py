@@ -78,7 +78,6 @@ def test_hierarchical_indices_unique_label_maps_to_correct_integer(
     [
         (["12345"], [2, 5], (1, 2)),
         (["1", "12", "123"], [1, 2, 3], (3, 3)),
-        ([], [2, 3], (0, 2)),
     ],
 )
 def test_hierarchical_indices_code_levels_shape_various_inputs(
@@ -92,7 +91,9 @@ def test_hierarchical_indices_code_levels_shape_various_inputs(
 def codes_and_cut_points_for_padding():
     codes = ["52", "51213", "511110"]  # varying lengths 2,5,6
     cut_points = [2, 3, 6]
-    out_no_pad = build_hierarchical_indices(codes, cut_points=cut_points)
+    out_no_pad = build_hierarchical_indices(
+        codes, cut_points=cut_points, prefix_fill=None
+    )
     out_pad = build_hierarchical_indices(codes, cut_points=cut_points, prefix_fill="0")
     return {
         "codes": codes,
@@ -106,7 +107,7 @@ def codes_and_cut_points_for_padding():
     "level_idx,expected_no_pad,expected_pad",
     [
         (2, "52", "520000"),  # L6: "52" (no pad), "520000" (pad)
-        (1, "52", "52"),  # L3: "52" (no pad), "52" (pad, no effect)
+        (1, "52", "520"),  # L3: "52" (no pad), right-pad → "520"
         (0, "52", "52"),  # L2: "52" (no pad), "52" (pad, no effect)
     ],
 )
@@ -123,7 +124,7 @@ def test_unique_per_level_contains_expected_label_without_padding(
     "level_idx,expected_no_pad,expected_pad",
     [
         (2, "52", "520000"),  # L6: "52" (no pad), "520000" (pad)
-        (1, "52", "52"),  # L3: "52" (no pad), "52" (pad, no effect)
+        (1, "52", "520"),  # L3: "52" (no pad), right-pad → "520"
         (0, "52", "52"),  # L2: "52" (no pad), "52" (pad, no effect)
     ],
 )

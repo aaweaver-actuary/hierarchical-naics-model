@@ -111,7 +111,11 @@ def test_prior_predictive_runs_with_various_sample_sizes(model_inputs, samples):
     else:
         y_draws = prior.get("is_written")  # type: ignore[call-arg]
     arr = np.asarray(y_draws)
-    assert arr.shape[0] == samples
+    # In PyMC >=5 with InferenceData, dims are (chain, draw, obs)
+    if hasattr(prior, "prior_predictive"):
+        assert arr.shape[1] == samples
+    else:
+        assert arr.shape[0] == samples
 
 
 @pytest.fixture
@@ -275,8 +279,8 @@ def bad_zip_levels_negative_index(model_inputs):
     ],
 )
 def test_build_conversion_model_raises_value_error_for_invalid_inputs(
-    bad_fixture, expected_exception
+    bad_fixture, expected_exception, request
 ):
-    bad_inputs = locals()[bad_fixture]
+    bad_inputs = request.getfixturevalue(bad_fixture)
     with pytest.raises(expected_exception):
         build_conversion_model(**bad_inputs)  # type: ignore[arg-type]

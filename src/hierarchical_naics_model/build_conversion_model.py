@@ -40,9 +40,44 @@ def build_conversion_model(
         raise RuntimeError("PyMC is not installed in this environment.")
 
     y = np.asarray(y, dtype="int8")
+    # Basic validations
+    if y.ndim != 1:
+        raise ValueError("`y` must be a 1D array of 0/1.")
+    if not np.isin(y, [0, 1]).all():
+        raise ValueError("`y` must be binary in {0,1}.")
+
+    if naics_levels.ndim != 2:
+        raise ValueError("`naics_levels` must be a 2D integer array.")
+    if zip_levels.ndim != 2:
+        raise ValueError("`zip_levels` must be a 2D integer array.")
+
     N = y.shape[0]
+    if naics_levels.shape[0] != N or zip_levels.shape[0] != N:
+        raise ValueError(
+            "`naics_levels` and `zip_levels` must have the same number of rows as `y`."
+        )
+
     L_naics = int(naics_levels.shape[1])
     L_zip = int(zip_levels.shape[1])
+    if len(naics_group_counts) != L_naics:
+        raise ValueError(
+            "`naics_group_counts` length must equal number of NAICS levels."
+        )
+    if len(zip_group_counts) != L_zip:
+        raise ValueError("`zip_group_counts` length must equal number of ZIP levels.")
+
+    # Index bounds validations
+    if (naics_levels < 0).any():
+        raise ValueError("`naics_levels` contains negative indices.")
+    if (zip_levels < 0).any():
+        raise ValueError("`zip_levels` contains negative indices.")
+    # Per-level upper bound checks
+    for j in range(L_naics):
+        if int(naics_levels[:, j].max(initial=-1)) >= int(naics_group_counts[j]):
+            raise ValueError("`naics_levels` index out of range for level {j}.")
+    for m in range(L_zip):
+        if int(zip_levels[:, m].max(initial=-1)) >= int(zip_group_counts[m]):
+            raise ValueError("`zip_levels` index out of range for level {m}.")
 
     with pm.Model() as model:
         # Data containers
@@ -56,6 +91,12 @@ def build_conversion_model(
             for m in range(L_zip)
         ]
 
+        # Define coords for hierarchical levels so dims are known to the model
+        for j in range(L_naics):
+            model.add_coord(f"NAICS_L{j}", np.arange(int(naics_group_counts[j])))
+        for m in range(L_zip):
+            model.add_coord(f"ZIP_L{m}", np.arange(int(zip_group_counts[m])))
+
         # Global intercept
         beta0 = pm.Normal("beta0", 0.0, 1.5)
 
@@ -68,19 +109,29 @@ def build_conversion_model(
         else:
             naics_mu_0 = pm.Normal("naics_mu_0", 0.0, 1.0)
         naics_sigma_0 = pm.HalfNormal("naics_sigma_0", 0.6)
-        naics_base = _noncentered_normal(
-            "naics_base",
-            mu=naics_mu_0,
-            sigma=naics_sigma_0,
-            shape=(naics_group_counts[0],),
-            dims=("NAICS_L0",),
-        )
+        if int(naics_group_counts[0]) == 1:
+            # Trivial single-group: disable random effect to keep beta0 identifiable
+            naics_base = pm.Deterministic(
+                "naics_base",
+                pm.math.constant(np.zeros(int(naics_group_counts[0]), dtype=float)),
+                dims=("NAICS_L0",),
+            )
+        else:
+            naics_base = _noncentered_normal(
+                "naics_base",
+                mu=naics_mu_0,
+                sigma=naics_sigma_0,
+                shape=(naics_group_counts[0],),
+                dims=("NAICS_L0",),
+            )
+        # Alias to expected variable name for tests/consumers
+        pm.Deterministic("naics_eff_0", naics_base, dims=("NAICS_L0",))
         naics_contrib = naics_base[naics_idx[0]]
 
         # Deeper NAICS deltas: zero-mean, their own scales per level
         for j in range(1, L_naics):
             # tests expect a 'mu' per level; deltas are zero-mean ⇒ register as Deterministic(0.)
-            pm.Deterministic(f"naics_mu_{j}", 0.0)
+            pm.Deterministic(f"naics_mu_{j}", pm.math.constant(0.0))
             # scale for deltas (tighter for deeper levels)
             naics_sigma_j = pm.HalfNormal(
                 f"naics_sigma_{j}", 0.4 if j < L_naics - 1 else 0.3
@@ -92,6 +143,8 @@ def build_conversion_model(
             naics_delta_j = pm.Deterministic(
                 f"naics_delta_{j}", delta_offset * naics_sigma_j
             )
+            # Expose as generic effect name
+            pm.Deterministic(f"naics_eff_{j}", naics_delta_j)
             naics_contrib = naics_contrib + naics_delta_j[naics_idx[j]]
 
         # ------------------------
@@ -102,22 +155,31 @@ def build_conversion_model(
         else:
             zip_mu_0 = pm.Normal("zip_mu_0", 0.0, 1.0)
         zip_sigma_0 = pm.HalfNormal("zip_sigma_0", 0.6)
-        zip_base = _noncentered_normal(
-            "zip_base",
-            mu=zip_mu_0,
-            sigma=zip_sigma_0,
-            shape=(zip_group_counts[0],),
-            dims=("ZIP_L0",),
-        )
+        if int(zip_group_counts[0]) == 1:
+            zip_base = pm.Deterministic(
+                "zip_base",
+                pm.math.constant(np.zeros(int(zip_group_counts[0]), dtype=float)),
+                dims=("ZIP_L0",),
+            )
+        else:
+            zip_base = _noncentered_normal(
+                "zip_base",
+                mu=zip_mu_0,
+                sigma=zip_sigma_0,
+                shape=(zip_group_counts[0],),
+                dims=("ZIP_L0",),
+            )
+        pm.Deterministic("zip_eff_0", zip_base, dims=("ZIP_L0",))
         zip_contrib = zip_base[zip_idx[0]]
 
         for m in range(1, L_zip):
-            pm.Deterministic(f"zip_mu_{m}", 0.0)
+            pm.Deterministic(f"zip_mu_{m}", pm.math.constant(0.0))
             zip_sigma_m = pm.HalfNormal(f"zip_sigma_{m}", 0.4 if m < L_zip - 1 else 0.3)
             delta_offset = pm.Normal(
                 f"zip_delta_{m}_offset", 0.0, 1.0, shape=(zip_group_counts[m],)
             )
             zip_delta_m = pm.Deterministic(f"zip_delta_{m}", delta_offset * zip_sigma_m)
+            pm.Deterministic(f"zip_eff_{m}", zip_delta_m)
             zip_contrib = zip_contrib + zip_delta_m[zip_idx[m]]
 
         # Linear predictor & likelihood

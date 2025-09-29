@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Mapping, TypedDict
+from typing import List, Mapping, Optional, TypedDict
 import numpy as np
 import pandas as pd
 from .types import Strings, Integers
@@ -20,8 +20,8 @@ class HierIndex(TypedDict):
 def build_hierarchical_indices(
     codes: Strings,
     *,
-    cut_points: Integers,
-    prefix_fill: str = "0",
+    cut_points: Optional[Integers] = None,
+    prefix_fill: Optional[str] = "0",
 ) -> HierIndex:
     """
     Convert hierarchical codes (e.g., NAICS, ZIP) into per-level integer indices,
@@ -51,11 +51,28 @@ def build_hierarchical_indices(
     """
     if len(codes) == 0:
         raise ValueError("`codes` cannot be empty.")
-    if any(c <= 0 for c in cut_points):
-        raise ValueError("cut_points must be positive.")
-
     codes = pd.Series(codes, dtype="string")
+    if codes.isna().any():
+        raise ValueError("`codes` contains null/NaN values; please clean input.")
+
     max_code_len = int(codes.str.len().max())
+    # Infer default cuts if not provided
+    if cut_points is None:
+        if max_code_len == 6:
+            cut_points = [2, 3, 4, 5, 6]
+        elif max_code_len <= 5:
+            cut_points = list(range(1, max_code_len + 1))
+        else:
+            cut_points = list(range(1, max_code_len + 1))
+
+    # Validate cuts
+    if len(cut_points) == 0:
+        raise ValueError("`cut_points` cannot be empty when provided.")
+    if any(int(c) <= 0 for c in cut_points):
+        raise ValueError("cut_points must be positive.")
+    if any(c2 <= c1 for c1, c2 in zip(cut_points, cut_points[1:])):
+        raise ValueError("`cut_points` must be strictly increasing.")
+
     full_len = max(max_code_len, max(cut_points))
 
     # RIGHT-pad to protect slicing (e.g., '52' -> '520000' for NAICS up to 6)

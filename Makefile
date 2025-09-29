@@ -12,7 +12,7 @@ lint:
 
 .PHONY: test
 test:
-	uv run pytest -x \
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -x -p pytest_cov \
 		--cov=$(SRC_DIR) \
 		--cov-report=term-missing \
 		--cov-report=html \
@@ -26,4 +26,4 @@ test-rec:
 
 test-rec-only:
 	make lint
-	RUN_RECOVERY=1 uv run pytest tests/test_param_recovery_full.py -x
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 RUN_RECOVERY=1 uv run pytest -p pytest_cov tests/test_param_recovery_full.py -x

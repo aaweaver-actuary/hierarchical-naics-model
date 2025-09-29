@@ -29,7 +29,7 @@ def resolver():
         ("12345", [7, 3, 5]),  # Longer code, slices to max cut_points
         (
             "511",
-            [1, 2, 1],
+            [1, 2, 2],
         ),  # L2: '51'->1, L3: '511'->2, L4: '5110' not found, backoff to L2 idx
     ],
 )

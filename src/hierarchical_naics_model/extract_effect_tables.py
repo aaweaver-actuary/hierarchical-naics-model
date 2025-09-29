@@ -1,23 +1,23 @@
 # hierarchical_conversion_model/scoring.py
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
 
 def extract_effect_tables(
     idata,
+    *,
+    naics_level_names: Optional[List[str]] = None,
+    zip_level_names: Optional[List[str]] = None,
 ) -> Dict[str, object]:
     """
     Reduce posterior samples to posterior means for nested-delta scoring.
 
-    Expected vars in `idata.posterior`:
-      - beta0
-      - naics_base (vector at level 0)
-      - naics_delta_{j} for j>=1 (vectors)
-      - zip_base
-      - zip_delta_{m} for m>=1
+        Expected vars in `idata.posterior` (supports both naming schemes):
+            - Modern nested-delta names: naics_base, naics_delta_{j}, zip_base, zip_delta_{m}
+            - Or flat names: naics_eff_{j}, zip_eff_{m}
     """
     post = idata.posterior
 
@@ -27,28 +27,50 @@ def extract_effect_tables(
         vec = post[name].mean(dim=("chain", "draw")).values
         return pd.Series(vec, index=np.arange(vec.shape[0]), name=name)
 
-    naics_base = _series("naics_base")
-    naics_deltas: List[pd.Series] = []
-    for v in sorted(
-        [v for v in post.data_vars if str(v).startswith("naics_delta_")],
-        key=lambda s: int(str(s).split("_")[-1]),
-    ):
-        naics_deltas.append(_series(str(v)))
+    naics_tables: List[pd.Series] = []
+    zip_tables: List[pd.Series] = []
 
-    zip_base = _series("zip_base")
-    zip_deltas: List[pd.Series] = []
-    for v in sorted(
-        [v for v in post.data_vars if str(v).startswith("zip_delta_")],
-        key=lambda s: int(str(s).split("_")[-1]),
-    ):
-        zip_deltas.append(_series(str(v)))
+    if "naics_base" in post.data_vars:
+        naics_tables.append(_series("naics_base"))
+        for v in sorted(
+            [v for v in post.data_vars if str(v).startswith("naics_delta_")],
+            key=lambda s: int(str(s).split("_")[-1]),
+        ):
+            naics_tables.append(_series(str(v)))
+    else:
+        # Fallback to flat names naics_eff_{j}
+        eff_vars = sorted(
+            [v for v in post.data_vars if str(v).startswith("naics_eff_")],
+            key=lambda s: int(str(s).split("_")[-1]),
+        )
+        for v in eff_vars:
+            naics_tables.append(_series(str(v)))
+
+    if "zip_base" in post.data_vars:
+        zip_tables.append(_series("zip_base"))
+        for v in sorted(
+            [v for v in post.data_vars if str(v).startswith("zip_delta_")],
+            key=lambda s: int(str(s).split("_")[-1]),
+        ):
+            zip_tables.append(_series(str(v)))
+    else:
+        eff_vars = sorted(
+            [v for v in post.data_vars if str(v).startswith("zip_eff_")],
+            key=lambda s: int(str(s).split("_")[-1]),
+        )
+        for v in eff_vars:
+            zip_tables.append(_series(str(v)))
+
+    # Default names if not provided
+    if naics_level_names is None:
+        naics_level_names = [f"NAICS_L{j}" for j in range(len(naics_tables))]
+    if zip_level_names is None:
+        zip_level_names = [f"ZIP_L{m}" for m in range(len(zip_tables))]
 
     return {
         "beta0": beta0,
-        "naics_base": naics_base,
-        "naics_deltas": naics_deltas,
-        "zip_base": zip_base,
-        "zip_deltas": zip_deltas,
-        "naics_level_names": [f"N{j}" for j in range(len(naics_deltas) + 1)],
-        "zip_level_names": [f"Z{m}" for m in range(len(zip_deltas) + 1)],
+        "naics_tables": naics_tables,
+        "zip_tables": zip_tables,
+        "naics_level_names": naics_level_names,
+        "zip_level_names": zip_level_names,
     }
