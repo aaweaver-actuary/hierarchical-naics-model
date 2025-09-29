@@ -19,3 +19,6 @@ test:
 		--cov-report=html \
 		--cov-report=lcov \
 		--cov-fail-under=$(COV_MIN)
+
+test-rec:
+	RUN_RECOVERY=1 make test
