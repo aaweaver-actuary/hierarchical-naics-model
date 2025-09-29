@@ -81,7 +81,8 @@ def build_hierarchical_indices(
         uniq = np.asarray(pd.Index(labels).unique(), dtype="object")
         # stable order via pandas categorical codes
         cat = pd.Categorical(labels, categories=uniq, ordered=False)
-        idx = cat.codes.to_numpy()  # 0..K-1
+        # cat.codes may already be an ndarray; ensure ndarray and int dtype
+        idx = np.asarray(cat.codes, dtype=np.int64)  # 0..K-1
         code_levels[:, j] = idx
         unique_per_level.append(uniq)
         maps.append({u: i for i, u in enumerate(uniq)})

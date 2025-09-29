@@ -1,16 +1,10 @@
 [project]
-dependencies=[
-    "certifi>=2025.8.3",
-    "pandas>=2.3.2",
-    "polars>=1.33.1",
-    "pymc>=4.4.0",
-    "pytensor>=2.32.0",
-]
-description="Add your description here"
-name="hierarchical-naics-model"
-readme="README.md"
+dependencies   =["certifi>=2025.8.3", "pandas>=2.3.2", "polars>=1.33.1", "pymc>=5.0.0"]
+description    ="Add your description here"
+name           ="hierarchical-naics-model"
+readme         ="README.md"
 requires-python=">=3.10"
-version="0.1.0"
+version        ="0.1.0"
 
     [project.scripts]
     hierarchical-naics-model="hierarchical_naics_model:main"
