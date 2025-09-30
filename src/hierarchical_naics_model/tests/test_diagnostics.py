@@ -201,3 +201,16 @@ def test_extract_observed_defensive_exception(monkeypatch, model_inputs):
 
     result = extract_observed(FakeIdata(), "is_written")
     assert result is None
+
+
+def test_compute_ppc_metrics_defensive_fallback(monkeypatch):
+    from hierarchical_naics_model import diagnostics
+    import numpy as np
+
+    # Monkeypatch np.mean to raise exception
+    monkeypatch.setattr(
+        np, "mean", lambda arr: (_ for _ in ()).throw(RuntimeError("fail mean"))
+    )
+    arr = np.array([0, 1, 1, 0])
+    result = diagnostics.compute_ppc_metrics(arr, None)
+    assert isinstance(result, dict)

@@ -234,3 +234,40 @@ def test_extract_effect_tables_table_lengths_and_zip_level_names_are_correct(
     assert len(naics_tables) == expected_naics_len
     assert len(zip_tables) == expected_zip_len
     assert out["zip_level_names"] == expected_zip_names
+
+
+def test_extract_effect_tables_empty_posterior():
+    import xarray as xr
+
+    idata = _FakeIdata(xr.Dataset())
+    out = extract_effect_tables(idata)
+    assert out["naics_tables"] == []
+    assert out["zip_tables"] == []
+    assert out["naics_level_names"] == []
+    assert out["zip_level_names"] == []
+
+
+def test_extract_effect_tables_missing_expected_vars():
+    import xarray as xr
+
+    # Only provide beta0, no naics/zip effects
+    ds = xr.Dataset({"beta0": ("chain", np.ones(2))})
+    idata = _FakeIdata(ds)
+    out = extract_effect_tables(idata)
+    assert out["beta0"] == 1.0
+    assert out["naics_tables"] == []
+    assert out["zip_tables"] == []
+
+
+def test_extract_effect_tables_custom_level_names_with_missing_tables():
+    import xarray as xr
+
+    ds = xr.Dataset({"beta0": ("chain", np.ones(2))})
+    idata = _FakeIdata(ds)
+    custom_naics = ["CustomN0", "CustomN1"]
+    custom_zip = ["CustomZ0"]
+    out = extract_effect_tables(
+        idata, naics_level_names=custom_naics, zip_level_names=custom_zip
+    )
+    assert out["naics_level_names"] == custom_naics
+    assert out["zip_level_names"] == custom_zip

@@ -21,23 +21,39 @@ def extract_effect_tables(
     """
     post = idata.posterior
 
-    beta0 = float(post["beta0"].mean(dim=("chain", "draw")).values)
+    # Defensive: handle missing beta0 and empty posterior
+    try:
+        if "beta0" in getattr(post, "data_vars", {}):
+            arr = post["beta0"]
+            # If chain/draw dims exist, take mean; else, just take value
+            dims = set(getattr(arr, "dims", []))
+            if "chain" in dims and "draw" in dims:
+                beta0 = float(arr.mean(dim=("chain", "draw")).values)
+            else:
+                beta0 = float(np.mean(arr.values))
+        else:
+            beta0 = 0.0
+    except Exception:
+        beta0 = 0.0
 
     def _series(name: str) -> pd.Series:
-        vec = post[name].mean(dim=("chain", "draw")).values
-        return pd.Series(vec, index=np.arange(vec.shape[0]), name=name)
+        try:
+            vec = post[name].mean(dim=("chain", "draw")).values
+            return pd.Series(vec, index=np.arange(vec.shape[0]), name=name)
+        except Exception:
+            return pd.Series([], name=name)
 
     naics_tables: List[pd.Series] = []
     zip_tables: List[pd.Series] = []
 
-    if "naics_base" in post.data_vars:
+    if hasattr(post, "data_vars") and "naics_base" in post.data_vars:
         naics_tables.append(_series("naics_base"))
         for v in sorted(
             [v for v in post.data_vars if str(v).startswith("naics_delta_")],
             key=lambda s: int(str(s).split("_")[-1]),
         ):
             naics_tables.append(_series(str(v)))
-    else:
+    elif hasattr(post, "data_vars"):
         # Fallback to flat names naics_eff_{j}
         eff_vars = sorted(
             [v for v in post.data_vars if str(v).startswith("naics_eff_")],
@@ -46,14 +62,14 @@ def extract_effect_tables(
         for v in eff_vars:
             naics_tables.append(_series(str(v)))
 
-    if "zip_base" in post.data_vars:
+    if hasattr(post, "data_vars") and "zip_base" in post.data_vars:
         zip_tables.append(_series("zip_base"))
         for v in sorted(
             [v for v in post.data_vars if str(v).startswith("zip_delta_")],
             key=lambda s: int(str(s).split("_")[-1]),
         ):
             zip_tables.append(_series(str(v)))
-    else:
+    elif hasattr(post, "data_vars"):
         eff_vars = sorted(
             [v for v in post.data_vars if str(v).startswith("zip_eff_")],
             key=lambda s: int(str(s).split("_")[-1]),

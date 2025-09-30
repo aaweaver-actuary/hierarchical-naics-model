@@ -42,6 +42,8 @@ def generate_synthetic_data(
       one (non-hierarchical) lookup per code. This is just to create a
       plausible-looking classification task for method smoke-tests.
     """
+    if not naics_codes or not zip_codes:
+        raise ValueError("naics_codes and zip_codes must be non-empty sequences.")
     rng = np.random.default_rng(seed)
     naics = rng.choice(np.asarray(naics_codes), size=n, replace=True)
     zips = rng.choice(np.asarray(zip_codes), size=n, replace=True)

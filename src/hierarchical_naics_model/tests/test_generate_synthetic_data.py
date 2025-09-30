@@ -1,4 +1,7 @@
 from __future__ import annotations
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
 import pandas as pd
 from hierarchical_naics_model.generate_synthetic_data import generate_synthetic_data
 import pytest
@@ -9,11 +12,6 @@ def synthetic_df(naics_pool, zip_pool):
     return generate_synthetic_data(
         200, naics_codes=naics_pool, zip_codes=zip_pool, base_logit=-1.5, seed=0
     )
-
-
-from hierarchical_naics_model.tests.test_performance_decorator import (
-    log_test_performance,
-)
 
 
 @log_test_performance
@@ -87,3 +85,19 @@ def test_base_logit_effect(naics_pool, zip_pool):
     )
     # With same seed and pools, higher base_logit should yield strictly higher mean
     assert df_high["is_written"].mean() > df_low["is_written"].mean()
+
+
+def test_generate_synthetic_data_empty_pools():
+    import pytest
+
+    # Should raise or return empty DataFrame
+    with pytest.raises(Exception):
+        generate_synthetic_data(10, naics_codes=[], zip_codes=[], base_logit=0, seed=42)
+
+
+def test_generate_synthetic_data_zero_rows(naics_pool, zip_pool):
+    df = generate_synthetic_data(
+        0, naics_codes=naics_pool, zip_codes=zip_pool, base_logit=0, seed=42
+    )
+    assert isinstance(df, pd.DataFrame)
+    assert len(df) == 0

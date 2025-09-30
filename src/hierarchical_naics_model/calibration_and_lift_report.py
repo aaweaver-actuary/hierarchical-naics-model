@@ -45,6 +45,8 @@ def calibration_and_lift_report(
     """
     y = np.asarray(y_true, dtype=int)
     p = np.asarray(p_hat, dtype=float)
+    if y.size == 0 or p.size == 0:
+        raise ValueError("y_true and p_hat must be non-empty arrays.")
     assert y.shape == p.shape
 
     n = y.size

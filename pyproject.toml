@@ -1,7 +1,9 @@
 [project]
 dependencies=[
     "certifi>=2025.8.3",
+    "kaleido>=1.1.0",
     "pandas>=2.3.2",
+    "plotly>=6.3.0",
     "polars>=1.33.1",
     "pymc>=5.0.0",
     "xarray>=2025.6.1",
