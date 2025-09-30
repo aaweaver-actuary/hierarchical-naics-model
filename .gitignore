@@ -15,3 +15,6 @@ repomix.config.json
 coverage.lcov
 .pytest_cache/
 .ruff_cache/
+test_performance.log
+radon_cc.txt
+.gitignore

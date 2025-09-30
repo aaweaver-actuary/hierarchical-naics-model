@@ -1,9 +1,16 @@
+import uuid
 import os
 import sys
 from typing import Dict, List, Sequence
 
 import numpy as np
 import pytest
+
+
+# Session-scoped fixture for a single test_run_id
+@pytest.fixture(scope="session")
+def test_run_id():
+    return str(uuid.uuid4())
 
 
 # Ensure the src/ layout is importable during tests without installation

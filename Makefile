@@ -11,15 +11,44 @@ lint:
 	uv run ty check .
 
 .PHONY: test
-test:
-	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -x -p pytest_cov \
-		--cov=$(SRC_DIR) \
-		--cov-report=term-missing \
-		--cov-report=html \
-		--cov-report=lcov \
-		--cov-fail-under=$(COV_MIN)
 
-check: lint test
+
+TESTFILE ?=
+test:
+	if [ -z "$(TESTFILE)" ]; then \
+		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -x -p pytest_cov \
+			--cov=$(SRC_DIR) \
+			--cov-report=term-missing \
+			--cov-report=html \
+			--cov-report=lcov \
+			--cov-fail-under=$(COV_MIN); \
+	else \
+		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest $(TESTFILE) -x; \
+	fi
+
+cc:
+	RADONFILESENCODING="UTF-8" uv run radon cc . \
+		--min "B" \
+		--total-average \
+		--show-complexity \
+		--order "SCORE" \
+		--no-assert
+
+mi:
+	RADONFILESENCODING="UTF-8" uv run radon mi .
+	
+hal: 
+	uv run radon hal .
+
+radon: cc mi hal
+
+xenon:
+	uv run xenon -b B -m A -a A ./src
+
+check:
+	make lint
+	make cc
+	make test
 
 test-rec:
 	RUN_RECOVERY=1 make test

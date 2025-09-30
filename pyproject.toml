@@ -23,8 +23,12 @@ requires     =["uv_build>=0.8.22,<0.9.0"]
 dev=[
     "pytest-cov>=7.0.0",
     "pytest>=8.4.2",
-    "radon>=6.0.1",
+    "radon[toml]>=6.0.1",
     "ruff>=0.13.2",
     "ty>=0.0.1a21",
     "xenon>=0.9.3",
 ]
+
+
+# [tool.pytest]
+# filterwarnings = ignore::UserWarning ignore::FutureWarning

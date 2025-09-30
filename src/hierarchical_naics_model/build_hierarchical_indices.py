@@ -110,8 +110,7 @@ def build_hierarchical_indices(
             try:
                 parent_idx_vec[g] = parent_map[parent_lab]
             except KeyError as e:
-                # Should not happen with padding + consistent slicing,
-                # but guard anyway.
+                # Should not happen with padding + consistent slicing, but guard anyway.
                 raise RuntimeError(
                     f"Parent label '{parent_lab}' not found at level {j - 1} "
                     f"for child '{child_lab}' at level {j}."

@@ -1,12 +1,16 @@
 import numpy as np
 import pandas as pd
 import pytest
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
 from hierarchical_naics_model.calibration_and_lift_report import (
     calibration_and_lift_report,
 )
 
 
-def test_calibration_and_lift_report_basic():
+@log_test_performance
+def test_calibration_and_lift_report_basic(test_run_id):
     # Simple binary outcome and predicted probabilities
     df = pd.DataFrame(
         {

@@ -2,6 +2,9 @@
 import numpy as np
 import pymc as pm
 import pytest
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
 from hierarchical_naics_model.build_hierarchical_indices import (
     build_hierarchical_indices,
 )
@@ -80,22 +83,26 @@ def sampled_idata(built_model):
     return idata
 
 
-def test_model_is_instance_of_pm_Model(built_model):
+@log_test_performance
+def test_model_is_instance_of_pm_Model(built_model, test_run_id):
     assert isinstance(built_model, pm.Model)
 
 
-def test_posterior_p_shape_matches_y_length(simulated_data, sampled_idata):
+@log_test_performance
+def test_posterior_p_shape_matches_y_length(simulated_data, sampled_idata, test_run_id):
     y, _, _ = simulated_data
     p_post = sampled_idata.posterior["p"].mean(dim=("chain", "draw")).to_numpy()
     assert p_post.shape[0] == y.shape[0]
 
 
-def test_posterior_p_is_finite(sampled_idata):
+@log_test_performance
+def test_posterior_p_is_finite(sampled_idata, test_run_id):
     p_post = sampled_idata.posterior["p"].mean(dim=("chain", "draw")).to_numpy()
     assert np.isfinite(p_post).all()
 
 
-def test_posterior_p_within_zero_one(sampled_idata):
+@log_test_performance
+def test_posterior_p_within_zero_one(sampled_idata, test_run_id):
     p_post = sampled_idata.posterior["p"].mean(dim=("chain", "draw")).to_numpy()
     assert (p_post >= 0).all() and (p_post <= 1).all()
 
@@ -109,6 +116,7 @@ def test_posterior_p_within_zero_one(sampled_idata):
         (1000, 999),  # large sample
     ],
 )
-def test_simulate_edge_cases(n, seed):
+@log_test_performance
+def test_simulate_edge_cases(n, seed, test_run_id):
     y, idx_n, idx_z = _simulate(n=n, seed=seed)
     assert y.shape[0] == n

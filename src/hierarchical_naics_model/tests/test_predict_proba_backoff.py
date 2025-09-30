@@ -3,6 +3,11 @@ import numpy as np
 from hierarchical_naics_model.logger import get_logger
 from hierarchical_naics_model.predict_proba import predict_proba, serialize_level_maps
 import pytest
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
+
+log = get_logger(__name__)
 
 
 @pytest.fixture
@@ -20,6 +25,8 @@ def effects_fixture():
             pd.Series([0.03, -0.03], index=[0, 1]),
         ],
     }
+
+
 @pytest.fixture
 def naics_zip_level_maps_fixture():
     naics_level_maps = [
@@ -43,32 +50,41 @@ def test_df_fixture():
 @pytest.mark.parametrize(
     "naics,zip,expected_backoff_naics,expected_backoff_zip",
     [
-        (["100", "200"], ["111", "222"], [False, False, True], [False, False, True]),
+        (
+            ["100", "200", "300"],
+            ["111", "222", "333"],
+            [False, False, True],
+            [False, False, True],
+        ),
         (["999"], ["888"], [True], [True]),
         (["100"], ["888"], [False], [True]),
         (["999"], ["111"], [True], [False]),
         ([], [], [], []),
     ],
 )
+@log_test_performance
 def test_predict_proba_backoff_flags_are_correct_for_known_and_unknown_codes(
     naics,
-    @pytest.mark.parametrize(
-        "naics,zip,expected_backoff_naics,expected_backoff_zip",
-        [
-            (["100", "200", "300"], ["111", "222", "333"], [False, False, True], [False, False, True]),
-            (["999"], ["888"], [True], [True]),
-            (["100"], ["888"], [False], [True]),
-            (["999"], ["111"], [True], [False]),
-            ([], [], [], []),
-        ],
-    )
+    zip,
+    expected_backoff_naics,
+    expected_backoff_zip,
+    naics_zip_level_maps_fixture,
+    effects_fixture,
+    test_run_id,
+):
+    df = pd.DataFrame({"naics": naics, "zip": zip})
+    naics_level_maps, zip_level_maps = naics_zip_level_maps_fixture
+    out = predict_proba(
+        df_new=df,
+        naics_col="naics",
+        zip_col="zip",
+        naics_cut_points=[1, 2, 3],
         zip_cut_points=[1, 2, 3],
         naics_level_maps=naics_level_maps,
         zip_level_maps=zip_level_maps,
         effects=effects_fixture,
         prefix_fill="0",
     )
-    # Assert only for the first backoff level (most specific)
     actual = out["backoff_naics_0"].tolist()
     assert len(actual) == len(expected_backoff_naics), (
         f"Length mismatch: got {len(actual)}, expected {len(expected_backoff_naics)}"
@@ -76,16 +92,22 @@ def test_predict_proba_backoff_flags_are_correct_for_known_and_unknown_codes(
     assert actual == expected_backoff_naics
 
 
-    @pytest.mark.parametrize(
-        "naics,zip,expected_backoff_naics,expected_backoff_zip",
-        [
-            (["100", "200", "300"], ["111", "222", "333"], [False, False, True], [False, False, True]),
-            (["999"], ["888"], [True], [True]),
-            (["100"], ["888"], [False], [True]),
-            (["999"], ["111"], [True], [False]),
-            ([], [], [], []),
-        ],
-    )
+@pytest.mark.parametrize(
+    "naics,zip,expected_backoff_naics,expected_backoff_zip",
+    [
+        (
+            ["100", "200", "300"],
+            ["111", "222", "333"],
+            [False, False, True],
+            [False, False, True],
+        ),
+        (["999"], ["888"], [True], [True]),
+        (["100"], ["888"], [False], [True]),
+        (["999"], ["111"], [True], [False]),
+        ([], [], [], []),
+    ],
+)
+@log_test_performance
 def test_predict_proba_backoff_zip_flags_are_correct_for_known_and_unknown_codes(
     naics,
     zip,
@@ -93,6 +115,7 @@ def test_predict_proba_backoff_zip_flags_are_correct_for_known_and_unknown_codes
     expected_backoff_zip,
     naics_zip_level_maps_fixture,
     effects_fixture,
+    test_run_id,
 ):
     df = pd.DataFrame({"naics": naics, "zip": zip})
     naics_level_maps, zip_level_maps = naics_zip_level_maps_fixture

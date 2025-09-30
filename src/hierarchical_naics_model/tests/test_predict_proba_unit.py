@@ -1,9 +1,13 @@
 import pandas as pd
 import numpy as np
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
 from hierarchical_naics_model.predict_proba import predict_proba
 
 
-def test_predict_proba_basic():
+@log_test_performance
+def test_predict_proba_basic(test_run_id):
     df = pd.DataFrame(
         {
             "naics": ["100", "200", "300"],

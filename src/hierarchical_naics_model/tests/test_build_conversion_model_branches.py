@@ -1,9 +1,13 @@
 import numpy as np
 import pytest
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
 from hierarchical_naics_model.build_conversion_model import build_conversion_model
 
 
-def test_invalid_y_shape():
+@log_test_performance
+def test_invalid_y_shape(test_run_id):
     y = np.zeros((10, 1), dtype="int8")
     naics_levels = np.zeros((10, 1), dtype=int)
     zip_levels = np.zeros((10, 1), dtype=int)
@@ -17,7 +21,8 @@ def test_invalid_y_shape():
         )
 
 
-def test_invalid_y_nonbinary():
+@log_test_performance
+def test_invalid_y_nonbinary(test_run_id):
     y = np.arange(10)
     naics_levels = np.zeros((10, 1), dtype=int)
     zip_levels = np.zeros((10, 1), dtype=int)
@@ -31,7 +36,8 @@ def test_invalid_y_nonbinary():
         )
 
 
-def test_invalid_naics_levels_shape():
+@log_test_performance
+def test_invalid_naics_levels_shape(test_run_id):
     y = np.zeros(10, dtype="int8")
     naics_levels = np.zeros(10, dtype=int)
     zip_levels = np.zeros((10, 1), dtype=int)
@@ -45,7 +51,8 @@ def test_invalid_naics_levels_shape():
         )
 
 
-def test_invalid_zip_levels_shape():
+@log_test_performance
+def test_invalid_zip_levels_shape(test_run_id):
     y = np.zeros(10, dtype="int8")
     naics_levels = np.zeros((10, 1), dtype=int)
     zip_levels = np.zeros(10, dtype=int)

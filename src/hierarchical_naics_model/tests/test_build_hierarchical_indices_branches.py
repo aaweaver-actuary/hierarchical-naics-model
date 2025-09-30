@@ -1,22 +1,28 @@
 import pytest
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
 from hierarchical_naics_model.build_hierarchical_indices import (
     build_hierarchical_indices,
 )
 
 
-def test_empty_codes_raises():
+@log_test_performance
+def test_empty_codes_raises(test_run_id):
     with pytest.raises(ValueError):
         build_hierarchical_indices([], cut_points=[2, 3, 6], prefix_fill="0")
 
 
-def test_null_codes_raises():
+@log_test_performance
+def test_null_codes_raises(test_run_id):
     with pytest.raises(ValueError):
         build_hierarchical_indices(
             [None, "511110"], cut_points=[2, 3, 6], prefix_fill="0"
         )
 
 
-def test_invalid_cut_points_raises():
+@log_test_performance
+def test_invalid_cut_points_raises(test_run_id):
     codes = ["511110", "511120"]
     # Not strictly increasing
     with pytest.raises(ValueError):

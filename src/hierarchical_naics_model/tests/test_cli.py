@@ -5,6 +5,9 @@ from pathlib import Path
 import polars as pl
 
 import pytest
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
 
 from hierarchical_naics_model.cli import main as cli_main
 
@@ -35,8 +38,17 @@ def output_dir(tmp_path):
         (2, 10, 10, 1, 1, 42),
     ],
 )
+@log_test_performance
 def test_cli_smoke_returns_zero_and_writes_artifacts(
-    tiny_parquet, output_dir, subset, draws, tune, chains, cores, random_seed
+    tiny_parquet,
+    output_dir,
+    subset,
+    draws,
+    tune,
+    chains,
+    cores,
+    random_seed,
+    test_run_id,
 ):
     rc = cli_main(
         [

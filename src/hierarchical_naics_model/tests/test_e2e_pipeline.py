@@ -9,6 +9,9 @@ from hierarchical_naics_model.build_hierarchical_indices import (
 )
 from hierarchical_naics_model.build_conversion_model import build_conversion_model
 import pytest
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
 
 
 @pytest.fixture(scope="module")
@@ -61,37 +64,46 @@ def sampled_model(hierarchical_indices):
 
 
 @pytest.mark.parametrize("n", [0, 1, 500])
-def test_generate_synthetic_data_row_count(n):
+@log_test_performance
+def test_generate_synthetic_data_row_count(n, test_run_id):
     df = generate_synthetic_data(
         n=n, naics_codes=["511110"], zip_codes=["30309"], base_logit=-1.2, seed=42
     )
     assert len(df) == n
 
 
-def test_naics_code_levels_shape_matches_data_length(hierarchical_indices):
+@log_test_performance
+def test_naics_code_levels_shape_matches_data_length(hierarchical_indices, test_run_id):
     df, naics_idx, _, _, _ = hierarchical_indices
     assert naics_idx["code_levels"].shape[0] == len(df)
 
 
-def test_zip_code_levels_shape_matches_data_length(hierarchical_indices):
+@log_test_performance
+def test_zip_code_levels_shape_matches_data_length(hierarchical_indices, test_run_id):
     df, _, zip_idx, _, _ = hierarchical_indices
     assert zip_idx["code_levels"].shape[0] == len(df)
 
 
-def test_naics_group_counts_length_matches_cut_points(hierarchical_indices):
+@log_test_performance
+def test_naics_group_counts_length_matches_cut_points(
+    hierarchical_indices, test_run_id
+):
     _, naics_idx, _, naics_cuts, _ = hierarchical_indices
     assert len(naics_idx["group_counts"]) == len(naics_cuts)
 
 
-def test_zip_group_counts_length_matches_cut_points(hierarchical_indices):
+@log_test_performance
+def test_zip_group_counts_length_matches_cut_points(hierarchical_indices, test_run_id):
     _, _, zip_idx, _, zip_cuts = hierarchical_indices
     assert len(zip_idx["group_counts"]) == len(zip_cuts)
 
 
-def test_posterior_group_exists_in_sampled_model(sampled_model):
+@log_test_performance
+def test_posterior_group_exists_in_sampled_model(sampled_model, test_run_id):
     assert "posterior" in sampled_model.groups()
 
 
 @pytest.mark.parametrize("key", ["beta0", "eta", "p"])
-def test_posterior_contains_expected_random_variables(sampled_model, key):
+@log_test_performance
+def test_posterior_contains_expected_random_variables(sampled_model, key, test_run_id):
     assert key in sampled_model.posterior or key in sampled_model.posterior.coords  # type: ignore[attr-defined]
