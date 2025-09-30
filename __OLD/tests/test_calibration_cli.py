@@ -1,5 +1,3 @@
-import os
-import tempfile
 import pandas as pd
 import pytest
 from hierarchical_naics_model.calibration_cli import main as calibration_main

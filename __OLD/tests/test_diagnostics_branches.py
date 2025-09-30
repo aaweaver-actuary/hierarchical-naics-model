@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from hierarchical_naics_model.tests.test_performance_decorator import (
     log_test_performance,
 )

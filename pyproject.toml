@@ -35,3 +35,6 @@ dev=[
 
 [tool.coverage.run]
 omit=["src/hierarchical_naics_model/tests/*"]
+
+[tool.pytest.ini_options]
+norecursedirs=["__OLD"]

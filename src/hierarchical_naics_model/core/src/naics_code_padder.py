@@ -1,6 +1,3 @@
-from typing import List
-
-
 class NaicsCodePadder:
     """Utility class for padding NAICS codes to a standard 6-digit format.
 
@@ -17,7 +14,10 @@ class NaicsCodePadder:
             raise ValueError(
                 f"NAICS code '{code}' exceeds maximum length of {self.target_length}."
             )
-        return code.ljust(self.target_length, self.pad_char)
+        n_pad_chars = self.target_length - len(code)
+        if n_pad_chars == 0:
+            return code
+        return code + (self.pad_char * n_pad_chars)
 
-    def __call__(self, codes: List[str]) -> List[str]:
-        return [self.pad(code) for code in codes]
+    def __call__(self, code: str) -> str:
+        return self.pad(code)

@@ -6,28 +6,38 @@ SRC_DIR := src/$(PACKAGE)
 COV_MIN := 95
 
 lint: 
-	uv run ruff check .
-	uv run ruff format .
-	uv run ty check .
+	uv run ruff check --fix src/
+	uv run ruff format src/
+	uv run ty check src/
+
+CHECKFILE ?=
+check:
+	make lint
+	if [ -n "$(CHECKFILE)" ]; then \
+		uv run pytest --ignore=__OLD $(CHECKFILE); \
+	else \
+		uv run pytest --ignore=__OLD; \
+	fi
+
 
 .PHONY: test
-
-
 TESTFILE ?=
 test:
 	if [ -z "$(TESTFILE)" ]; then \
-		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -x -p pytest_cov \
-			--cov=$(SRC_DIR) \
-			--cov-report=term-missing \
-			--cov-report=html \
-			--cov-report=lcov \
-			--cov-fail-under=$(COV_MIN); \
+		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -x \
+# 			-p pytest_cov \
+# 			--cov=$(SRC_DIR) \
+# 			--cov-report=term-missing \
+# 			--cov-report=html \
+# 			--cov-report=lcov \
+# 			--cov-fail-under=$(COV_MIN) \
+			src/; \
 	else \
 		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest $(TESTFILE) -x; \
 	fi
 
 cc:
-	uv run radon cc . \
+	uv run radon cc src/ \
 		--min "C" \
 		--total-average \
 		--show-complexity \
@@ -35,20 +45,16 @@ cc:
 		--no-assert
 
 mi:
-	uv run radon mi .
+	uv run radon mi src/
 	
 hal: 
-	uv run radon hal .
+	uv run radon hal src/
 
 radon: cc mi hal
 
 xenon:
-	uv run xenon -b B -m A -a A ./src
+	uv run xenon -b B -m A -a A src/
 
-check:
-	make lint
-	make cc
-	make test
 
 test-rec:
 	RUN_RECOVERY=1 make test

@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 import xarray as xr
 import arviz as az
 from hierarchical_naics_model.extract_effect_tables import extract_effect_tables
