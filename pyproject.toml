@@ -37,4 +37,6 @@ dev=[
 omit=["src/hierarchical_naics_model/tests/*"]
 
 [tool.pytest.ini_options]
+addopts      ="-q -m \"not slow\""
+markers      ="slow: runs short NUTS or CLI e2e; excluded from default CI"
 norecursedirs=["__OLD"]
