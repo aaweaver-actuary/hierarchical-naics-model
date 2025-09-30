@@ -4,7 +4,13 @@ from hierarchical_naics_model.build_hierarchical_indices import (
 import numpy as np
 
 
-def test_prefix_padding_enforced_by_default():
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
+
+
+@log_test_performance
+def test_prefix_padding_enforced_by_default(test_run_id):
     # Short codes should be right-padded with '0' by default
     codes = ["52", "51"]
     idx = build_hierarchical_indices(codes, cut_points=[2, 3, 6])
@@ -15,7 +21,8 @@ def test_prefix_padding_enforced_by_default():
         assert set(arr) == set(expected[:, j])
 
 
-def test_no_padding_if_disabled():
+@log_test_performance
+def test_no_padding_if_disabled(test_run_id):
     codes = ["52", "51"]
     idx = build_hierarchical_indices(codes, cut_points=[2, 3, 6], prefix_fill="")
     # No padding: codes remain as-is, so last level is just '52', '51'

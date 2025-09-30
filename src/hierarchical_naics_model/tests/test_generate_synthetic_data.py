@@ -1,6 +1,5 @@
 from __future__ import annotations
 import pandas as pd
-
 from hierarchical_naics_model.generate_synthetic_data import generate_synthetic_data
 import pytest
 
@@ -12,28 +11,38 @@ def synthetic_df(naics_pool, zip_pool):
     )
 
 
-def test_generated_dataframe_is_instance_of_pandas_dataframe(synthetic_df):
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
+
+
+@log_test_performance
+def test_generated_dataframe_is_instance_of_pandas_dataframe(synthetic_df, test_run_id):
     assert isinstance(synthetic_df, pd.DataFrame)
 
 
-def test_generated_dataframe_has_expected_columns(synthetic_df):
+@log_test_performance
+def test_generated_dataframe_has_expected_columns(synthetic_df, test_run_id):
     assert set(synthetic_df.columns) == {"is_written", "naics", "zip"}
 
 
-def test_generated_dataframe_has_expected_number_of_rows(synthetic_df):
+@log_test_performance
+def test_generated_dataframe_has_expected_number_of_rows(synthetic_df, test_run_id):
     assert len(synthetic_df) == 200
 
 
 @pytest.mark.parametrize("value", [0, 1])
+@log_test_performance
 def test_generated_dataframe_is_written_column_contains_only_0_or_1(
-    synthetic_df, value
+    synthetic_df, value, test_run_id
 ):
     assert value in synthetic_df["is_written"].unique()
 
 
 @pytest.mark.parametrize("naics_code", ["111110", "112120"])
+@log_test_performance
 def test_generated_dataframe_naics_column_contains_naics_pool_values(
-    synthetic_df, naics_code, naics_pool
+    synthetic_df, naics_code, naics_pool, test_run_id
 ):
     # Only test if naics_code is in the pool
     if naics_code in naics_pool:

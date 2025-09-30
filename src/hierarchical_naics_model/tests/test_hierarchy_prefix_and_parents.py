@@ -24,38 +24,48 @@ def naics_indices(naics_codes):
 
 @pytest.mark.parametrize("expected_levels", [["L2", "L3", "L6"]])
 @log_test_performance
-def test_hierarchical_indices_levels_are_correct(naics_indices, expected_levels):
+def test_hierarchical_indices_levels_are_correct(
+    naics_indices, expected_levels, test_run_id
+):
     assert naics_indices["levels"] == expected_levels
 
 
 @log_test_performance
-def test_hierarchical_indices_code_levels_shape_is_correct(naics_indices, naics_codes):
+def test_hierarchical_indices_code_levels_shape_is_correct(
+    naics_indices, naics_codes, test_run_id
+):
     assert naics_indices["code_levels"].shape == (len(naics_codes), 3)
 
 
 @log_test_performance
-def test_hierarchical_indices_single_l2_group(naics_indices):
+def test_hierarchical_indices_single_l2_group(naics_indices, test_run_id):
     assert naics_indices["group_counts"][0] == 1
 
 
 @log_test_performance
-def test_hierarchical_indices_l3_group_count_is_at_least_one(naics_indices):
+def test_hierarchical_indices_l3_group_count_is_at_least_one(
+    naics_indices, test_run_id
+):
     assert naics_indices["group_counts"][1] >= 1
 
 
 @log_test_performance
-def test_hierarchical_indices_parent_index_none_for_l2(naics_indices):
+def test_hierarchical_indices_parent_index_none_for_l2(naics_indices, test_run_id):
     assert naics_indices["parent_index_per_level"][0] is None
 
 
 @log_test_performance
-def test_hierarchical_indices_parent_index_is_ndarray_for_l3_and_l6(naics_indices):
+def test_hierarchical_indices_parent_index_is_ndarray_for_l3_and_l6(
+    naics_indices, test_run_id
+):
     assert isinstance(naics_indices["parent_index_per_level"][1], np.ndarray)
     assert isinstance(naics_indices["parent_index_per_level"][2], np.ndarray)
 
 
 @log_test_performance
-def test_hierarchical_indices_l3_groups_have_single_l2_parent(naics_indices):
+def test_hierarchical_indices_l3_groups_have_single_l2_parent(
+    naics_indices, test_run_id
+):
     assert np.all(naics_indices["parent_index_per_level"][1] == 0)
 
 
