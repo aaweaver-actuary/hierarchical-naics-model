@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Iterable
 
 import numpy as np
 import polars as pl
@@ -60,18 +61,8 @@ def shrinkage_synth_data(tmp_path):
     )
     pq_path = tmp_path / "shrinkage_synth.parquet"
     df_pl.write_parquet(str(pq_path))
-    means_rows = (
-        df_pl.group_by("naics")
-        .agg(pl.col("is_written").mean().alias("mean_y"))
-        .iter_rows(named=True)
-    )
-    means = {row["naics"]: float(row["mean_y"]) for row in means_rows}
-    ptrue_rows = (
-        df_pl.group_by("naics")
-        .agg(pl.col("p_true").mean().alias("p_true_mean"))
-        .iter_rows(named=True)
-    )
-    ptrue = {row["naics"]: float(row["p_true_mean"]) for row in ptrue_rows}
+    means = _get_mean_naics_by_row(df_pl)
+    ptrue = _get_mean_p_by_naics(df_pl)
     naics_idx = build_hierarchical_indices(naics_list, cut_points=[2, 3, 4, 5, 6])
     zip_idx = build_hierarchical_indices(zip_list, cut_points=[1])
     model = build_conversion_model(
@@ -111,6 +102,50 @@ def shrinkage_synth_data(tmp_path):
         "p_hat": p_hat,
         "first_idx": first_idx,
     }
+
+
+def _get_mean_naics_by_row(df: pl.DataFrame) -> dict[str, float]:
+    """Return mean of is_written grouped by naics."""
+    params = {
+        "group_by_col": "naics",
+        "agg_col": "is_written",
+        "agg_name": "mean_y",
+    }
+    return {
+        row["naics"]: float(row["mean_y"])
+        for row in _get_mean_by_row_iter(df, **params)
+    }
+
+
+def _get_mean_p_by_naics(df: pl.DataFrame) -> dict[str, float]:
+    """Return mean of p_true grouped by naics."""
+    return {
+        row["naics"]: float(row["p_true_mean"]) for row in _get_mean_p_by_naics_iter(df)
+    }
+
+
+def _get_mean_p_by_naics_iter(df: pl.DataFrame) -> pl.DataFrame:
+    """Return mean of p_true grouped by naics."""
+    params = {
+        "group_by_col": "naics",
+        "agg_col": "p_true",
+        "agg_name": "p_true_mean",
+    }
+    return _get_mean_by_row_iter(df, **params)
+
+
+def _get_mean_by_row_iter(
+    df: pl.DataFrame,
+    group_by_col: str = "naics",
+    agg_col: str = "is_written",
+    agg_name: str = "mean_y",
+) -> Iterable[dict]:
+    """Return mean of agg_col grouped by group_by_col."""
+    return (
+        df.group_by(group_by_col)
+        .agg(pl.col(agg_col).mean().alias(agg_name))
+        .iter_rows(named=True)
+    )
 
 
 @pytest.mark.skipif(

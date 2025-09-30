@@ -213,7 +213,8 @@ def test_predict_proba_eta_is_beta0_for_unseen_codes(
     assert np.isclose(out["eta"][2], effects_fixture["beta0"])
 
 
-def test_predict_proba_partial_backoff():
+@log_test_performance
+def test_predict_proba_partial_backoff(test_run_id):
     def make_maps():
         return [
             {"1": 0, "2": 1},
@@ -236,6 +237,11 @@ def test_predict_proba_partial_backoff():
         for delta_tbl in effects["zip_deltas"]:
             eta += float(delta_tbl.loc[zip_idx])
         return eta
+
+    def assert_all_backoff_false(out, i):
+        for j in range(3):
+            assert not out[f"backoff_naics_{j}"][i]
+            assert not out[f"backoff_zip_{j}"][i]
 
     # Initial test: codes only known at parent level
     df = pd.DataFrame({"naics": ["301", "401"], "zip": ["317", "427"]})
@@ -279,28 +285,8 @@ def test_predict_proba_partial_backoff():
         effects=effects,
         prefix_fill="0",
     )
-    log.debug(f"predict_proba output:\n{out}")
-    log.debug(
-        f"naics_idx: {out[['backoff_naics_0', 'backoff_naics_1', 'backoff_naics_2']].values.tolist()}"
-    )
-    log.debug(
-        f"zip_idx: {out[['backoff_zip_0', 'backoff_zip_1', 'backoff_zip_2']].values.tolist()}"
-    )
     for i in range(2):
-        log.debug(
-            f"Row {i} backoff_naics: {[out[f'backoff_naics_{j}'][i] for j in range(3)]}"
-        )
-        log.debug(
-            f"Row {i} backoff_zip: {[out[f'backoff_zip_{j}'][i] for j in range(3)]}"
-        )
-        print(
-            f"Row {i} backoff_naics: {[out[f'backoff_naics_{j}'][i] for j in range(3)]}"
-        )
-        print(f"Row {i} backoff_zip: {[out[f'backoff_zip_{j}'][i] for j in range(3)]}")
-        for j in range(3):
-            assert not out[f"backoff_naics_{j}"][i]
-            assert not out[f"backoff_zip_{j}"][i]
-        # Eta should include all fallback delta contributions
+        assert_all_backoff_false(out, i)
         expected_eta = expected_eta_for_row(
             i, df, naics_level_maps, zip_level_maps, effects
         )

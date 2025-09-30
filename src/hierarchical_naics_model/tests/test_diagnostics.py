@@ -186,3 +186,18 @@ def test_compute_ppc_metrics_handles_various_ppc_shapes(
 def test_compute_ppc_metrics_mean_ppc_matches_expected(y_ppc, y_obs, expected):
     metrics = compute_ppc_metrics(y_ppc, y_obs)
     assert metrics["mean_ppc"] == expected
+
+
+def test_extract_observed_defensive_exception(monkeypatch, model_inputs):
+    # Monkeypatch idata.observed_data to raise a non-KeyError exception
+    class Boom:
+        def __getattr__(self, name):
+            raise RuntimeError("Defensive exception!")
+
+    class FakeIdata:
+        observed_data = Boom()
+
+    from hierarchical_naics_model.diagnostics import extract_observed
+
+    result = extract_observed(FakeIdata(), "is_written")
+    assert result is None

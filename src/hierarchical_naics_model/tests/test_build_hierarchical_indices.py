@@ -9,7 +9,13 @@ from hierarchical_naics_model.build_hierarchical_indices import (
 )
 
 
-def test_empty_codes_raises():
+from hierarchical_naics_model.tests.test_performance_decorator import (
+    log_test_performance,
+)
+
+
+@log_test_performance
+def test_empty_codes_raises(test_run_id):
     with pytest.raises(ValueError):
         build_hierarchical_indices([], cut_points=[2, 3])
 
@@ -28,33 +34,46 @@ def codes_and_cut_points(naics_pool, naics_cut_points):
     }
 
 
-def test_hierarchical_indices_levels_are_named_as_expected(codes_and_cut_points):
+@log_test_performance
+def test_hierarchical_indices_levels_are_named_as_expected(
+    codes_and_cut_points, test_run_id
+):
     out = codes_and_cut_points["output"]
     cut_points = codes_and_cut_points["cut_points"]
     assert out["levels"] == [f"L{c}" for c in cut_points]
 
 
-def test_hierarchical_indices_code_levels_is_numpy_array(codes_and_cut_points):
+@log_test_performance
+def test_hierarchical_indices_code_levels_is_numpy_array(
+    codes_and_cut_points, test_run_id
+):
     code_levels = codes_and_cut_points["output"]["code_levels"]
     assert isinstance(code_levels, np.ndarray)
 
 
-def test_hierarchical_indices_code_levels_shape_is_correct(codes_and_cut_points):
+@log_test_performance
+def test_hierarchical_indices_code_levels_shape_is_correct(
+    codes_and_cut_points, test_run_id
+):
     code_levels = codes_and_cut_points["output"]["code_levels"]
     codes = codes_and_cut_points["codes"]
     cut_points = codes_and_cut_points["cut_points"]
     assert code_levels.shape == (len(codes), len(cut_points))
 
 
-def test_hierarchical_indices_group_counts_match_unique_prefixes(codes_and_cut_points):
+@log_test_performance
+def test_hierarchical_indices_group_counts_match_unique_prefixes(
+    codes_and_cut_points, test_run_id
+):
     out = codes_and_cut_points["output"]
     expected_counts = codes_and_cut_points["expected_counts"]
     assert out["group_counts"] == expected_counts
 
 
 @pytest.mark.parametrize("level_idx", [0, 1, 2])
+@log_test_performance
 def test_hierarchical_indices_unique_per_level_and_maps_length_align(
-    codes_and_cut_points, level_idx
+    codes_and_cut_points, level_idx, test_run_id
 ):
     out = codes_and_cut_points["output"]
     uniq = out["unique_per_level"][level_idx]
@@ -63,8 +82,9 @@ def test_hierarchical_indices_unique_per_level_and_maps_length_align(
 
 
 @pytest.mark.parametrize("level_idx", [0, 1, 2])
+@log_test_performance
 def test_hierarchical_indices_unique_label_maps_to_correct_integer(
-    codes_and_cut_points, level_idx
+    codes_and_cut_points, level_idx, test_run_id
 ):
     out = codes_and_cut_points["output"]
     uniq = out["unique_per_level"][level_idx]
@@ -80,8 +100,9 @@ def test_hierarchical_indices_unique_label_maps_to_correct_integer(
         (["1", "12", "123"], [1, 2, 3], (3, 3)),
     ],
 )
+@log_test_performance
 def test_hierarchical_indices_code_levels_shape_various_inputs(
-    codes, cut_points, expected_shape
+    codes, cut_points, expected_shape, test_run_id
 ):
     out = build_hierarchical_indices(codes, cut_points=cut_points)
     assert out["code_levels"].shape == expected_shape
@@ -111,8 +132,9 @@ def codes_and_cut_points_for_padding():
         (0, "52"),  # L2: "52" (pad, no effect)
     ],
 )
+@log_test_performance
 def test_unique_per_level_contains_expected_label_with_padding(
-    codes_and_cut_points_for_padding, level_idx, expected_pad
+    codes_and_cut_points_for_padding, level_idx, expected_pad, test_run_id
 ):
     uniq_pad = set(
         codes_and_cut_points_for_padding["out_pad"]["unique_per_level"][level_idx]
@@ -128,8 +150,9 @@ def test_unique_per_level_contains_expected_label_with_padding(
         (0, "52"),  # L2: "52" (no pad)
     ],
 )
+@log_test_performance
 def test_unique_per_level_contains_expected_label_without_padding(
-    codes_and_cut_points_for_padding, level_idx, expected_no_pad
+    codes_and_cut_points_for_padding, level_idx, expected_no_pad, test_run_id
 ):
     uniq_no_pad = set(
         codes_and_cut_points_for_padding["out_no_pad"]["unique_per_level"][level_idx]
@@ -148,10 +171,31 @@ def test_unique_per_level_contains_expected_label_without_padding(
         (["123"], [2], "0", "12"),  # longer code, pad, but no effect
     ],
 )
+@log_test_performance
 def test_prefix_fill_edge_cases_for_single_code(
-    codes, cut_points, prefix_fill, expected
+    codes, cut_points, prefix_fill, expected, test_run_id
 ):
     out = build_hierarchical_indices(
         codes, cut_points=cut_points, prefix_fill=prefix_fill
     )
     assert out["unique_per_level"][0][0] == expected
+
+
+def test_cut_points_empty_raises_valueerror(test_run_id):
+    codes = ["123"]
+    try:
+        build_hierarchical_indices(codes, cut_points=[])
+    except ValueError as e:
+        assert "cut_points" in str(e)
+    else:
+        assert False, "Expected ValueError not raised"
+
+
+def test_codes_contains_nan_raises_valueerror(test_run_id):
+    codes = ["123", None]
+    try:
+        build_hierarchical_indices(codes, cut_points=[1])
+    except ValueError as e:
+        assert "null/NaN" in str(e)
+    else:
+        assert False, "Expected ValueError not raised"

@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-from typing import List, Mapping, Optional, TypedDict
+from ast import In
+from typing import List, Optional, TypedDict
 import numpy as np
 import pandas as pd
-from .types import Strings, Integers
+from .types import Strings, Integers, Mappings, Arrays
 
 
 class HierIndex(TypedDict):
-    levels: List[str]
+    levels: Strings
     code_levels: np.ndarray  # (N, L) obs-level integer indices per level
-    unique_per_level: List[np.ndarray]  # string labels per level in index order
-    maps: List[Mapping[str, int]]  # level label -> int index
-    group_counts: List[int]  # # groups per level
+    unique_per_level: Arrays  # string labels per level in index order
+    maps: Mappings  # level label -> int index
+    group_counts: Integers  # # groups per level
     parent_index_per_level: List[np.ndarray | None]  # len L; array for j>0 else None
     max_len: int
-    cut_points: List[int]
+    cut_points: Integers
 
 
 def build_hierarchical_indices(
@@ -49,73 +50,46 @@ def build_hierarchical_indices(
           at level j to its parent group index at level j-1. For level 0: None.
         - max_len, cut_points
     """
+    # Determine max_code_len before padding
     if len(codes) == 0:
         raise ValueError("`codes` cannot be empty.")
-    codes = pd.Series(codes, dtype="string")
-    if codes.isna().any():
-        raise ValueError("`codes` contains null/NaN values; please clean input.")
+    codes_series = pd.Series(codes, dtype="string")
+    max_code_len = int(codes_series.str.len().max())
+    cut_points = _get_cut_points(max_code_len, cut_points)
+    _validate_cut_points(cut_points)
+    full_len = max(max_code_len, max(cut_points))
+    codes = _validate_codes(codes, prefix_fill=prefix_fill, full_len=full_len)
 
-    max_code_len = int(codes.str.len().max())
-    # Infer default cuts if not provided
-    if cut_points is None:
-        if max_code_len == 6:
-            cut_points = [2, 3, 4, 5, 6]
-        elif max_code_len <= 5:
-            cut_points = list(range(1, max_code_len + 1))
-        else:
-            cut_points = list(range(1, max_code_len + 1))
+    def _build_parent_index_per_level(unique_per_level, maps, cut_points):
+        parent_index_per_level: List[np.ndarray | None] = [None]
+        for j in range(1, len(cut_points)):
+            child_labels = unique_per_level[j]
+            parent_map = maps[j - 1]
+            parent_cut = cut_points[j - 1]
+            parent_idx_vec = np.empty(len(child_labels), dtype=np.int64)
+            for g, child_lab in enumerate(child_labels):
+                parent_lab = str(child_lab)[:parent_cut]
+                try:
+                    parent_idx_vec[g] = parent_map[parent_lab]
+                except KeyError as e:
+                    raise RuntimeError(
+                        f"Parent label '{parent_lab}' not found at level {j - 1} "
+                        f"for child '{child_lab}' at level {j}."
+                    ) from e
+            parent_index_per_level.append(parent_idx_vec)
+        return parent_index_per_level
 
-    # Validate cuts
-    if len(cut_points) == 0:
-        raise ValueError("`cut_points` cannot be empty when provided.")
-    if any(int(c) <= 0 for c in cut_points):
-        raise ValueError("cut_points must be positive.")
-    if any(c2 <= c1 for c1, c2 in zip(cut_points, cut_points[1:])):
-        raise ValueError("`cut_points` must be strictly increasing.")
-
+    cut_points = _get_cut_points(max_code_len, cut_points)
+    _validate_cut_points(cut_points)
     full_len = max(max_code_len, max(cut_points))
 
-    # Enforce prefix_fill='0' by default unless explicitly disabled
-    if prefix_fill is None:
-        prefix_fill = "0"
-    if prefix_fill:
-        codes = codes.str.pad(width=full_len, side="right", fillchar=prefix_fill)
-
-    levels: List[str] = [f"L{c}" for c in cut_points]
-    unique_per_level: List[np.ndarray] = []
-    maps: List[Mapping[str, int]] = []
-    group_counts: List[int] = []
-    code_levels = np.empty((len(codes), len(cut_points)), dtype=np.int64)
-
-    for j, c in enumerate(cut_points):
-        labels = codes.str.slice(0, c)
-        uniq = pd.Index(labels).unique()
-        cat = pd.Categorical(labels, categories=uniq, ordered=False)
-        idx = cat.codes
-        code_levels[:, j] = idx
-        lab_arr = np.asarray(uniq, dtype="object")
-        unique_per_level.append(lab_arr)
-        maps.append({lab: i for i, lab in enumerate(lab_arr)})
-        group_counts.append(len(uniq))
-
-    # Build child->parent pointers between consecutive levels
-    parent_index_per_level: List[np.ndarray | None] = [None]
-    for j in range(1, len(cut_points)):
-        child_labels = unique_per_level[j]
-        parent_map = maps[j - 1]
-        parent_cut = cut_points[j - 1]
-        parent_idx_vec = np.empty(len(child_labels), dtype=np.int64)
-        for g, child_lab in enumerate(child_labels):
-            parent_lab = str(child_lab)[:parent_cut]
-            try:
-                parent_idx_vec[g] = parent_map[parent_lab]
-            except KeyError as e:
-                # Should not happen with padding + consistent slicing, but guard anyway.
-                raise RuntimeError(
-                    f"Parent label '{parent_lab}' not found at level {j - 1} "
-                    f"for child '{child_lab}' at level {j}."
-                ) from e
-        parent_index_per_level.append(parent_idx_vec)
+    levels: Strings = [f"L{c}" for c in cut_points]
+    code_levels, unique_per_level, maps, group_counts = _build_code_levels(
+        codes, cut_points
+    )
+    parent_index_per_level = _build_parent_index_per_level(
+        unique_per_level, maps, cut_points
+    )
 
     return {
         "levels": levels,
@@ -127,3 +101,81 @@ def build_hierarchical_indices(
         "max_len": full_len,
         "cut_points": list(cut_points),
     }
+
+
+def _get_cut_points(
+    max_code_len: int, cut_points: Optional[Integers] = None
+) -> Integers:
+    has_cut_points = cut_points is not None
+    is_max_code_length_six = max_code_len == 6
+    default_cut_points = list(range(1, max_code_len + 1))
+
+    if has_cut_points:
+        return cut_points
+    if is_max_code_length_six:
+        return [2, 3, 4, 5, 6]
+    return default_cut_points
+
+
+def _build_code_levels(codes, cut_points):
+    unique_per_level: List[np.ndarray] = []
+    maps: Optional[Mappings] = []
+    group_counts: List[int] = []
+    code_levels = np.empty((len(codes), len(cut_points)), dtype=np.int64)
+    for j, c in enumerate(cut_points):
+        labels = codes.str.slice(0, c)
+        uniq = pd.Index(labels).unique()
+        cat = pd.Categorical(labels, categories=uniq, ordered=False)
+        idx = cat.codes
+        code_levels[:, j] = idx
+        lab_arr = np.asarray(uniq, dtype="object")
+        unique_per_level.append(lab_arr)
+        maps.append({lab: i for i, lab in enumerate(lab_arr)})
+        group_counts.append(len(uniq))
+    return code_levels, unique_per_level, maps, group_counts
+
+
+def _validate_cut_points(cut_points):
+    _validate_cut_points_nonempty(cut_points)
+    _validate_cut_points_positive(cut_points)
+    _validate_cut_points_strictly_increasing(cut_points)
+
+
+def _validate_cut_points_strictly_increasing(cut_points):
+    is_cut_points_non_increasing = any(
+        c2 <= c1 for c1, c2 in zip(cut_points, cut_points[1:])
+    )
+    if is_cut_points_non_increasing:
+        raise ValueError("`cut_points` must be strictly increasing.")
+
+
+def _validate_cut_points_positive(cut_points):
+    is_any_cut_point_nonpositive = any(int(c) <= 0 for c in cut_points)
+    if is_any_cut_point_nonpositive:
+        raise ValueError("cut_points must be positive.")
+
+
+def _validate_cut_points_nonempty(cut_points):
+    is_cut_points_empty = len(cut_points) == 0
+    if is_cut_points_empty:
+        raise ValueError("`cut_points` cannot be empty when provided.")
+
+
+def _validate_codes(
+    codes: Strings, prefix_fill: Optional[str] = None, full_len: Optional[int] = None
+) -> pd.Series:
+    is_codes_empty = len(codes) == 0
+    codes = pd.Series(codes, dtype="string")
+    is_codes_na = codes.isna().any()
+
+    if is_codes_empty:
+        raise ValueError("`codes` cannot be empty.")
+    if is_codes_na:
+        raise ValueError("`codes` contains null/NaN values; please clean input.")
+
+    if prefix_fill is None:
+        prefix_fill = "0"
+    if prefix_fill:
+        length = full_len if full_len is not None else int(codes.str.len().max())
+        codes = codes.str.pad(width=length, side="right", fillchar=prefix_fill)
+    return codes

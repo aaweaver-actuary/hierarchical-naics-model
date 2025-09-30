@@ -66,7 +66,7 @@ def test_model_contains_zip_eff_parameter(model_inputs, model, j):
 def prior_predictive(model_inputs):
     model = build_conversion_model(**model_inputs)  # type: ignore[missing-argument]
     with model:
-        prior = pm.sample_prior_predictive(samples=100)
+        prior = pm.sample_prior_predictive(draws=100)
     return prior
 
 
@@ -101,11 +101,11 @@ def test_prior_predictive_draws_last_dimension_matches_observed_length(
     assert arr.shape[-1] == model_inputs["y"].shape[0]
 
 
-@pytest.mark.parametrize("samples", [1, 10, 100, 500])
-def test_prior_predictive_runs_with_various_sample_sizes(model_inputs, samples):
+@pytest.mark.parametrize("draws", [1, 10, 100, 500])
+def test_prior_predictive_runs_with_various_sample_sizes(model_inputs, draws):
     model = build_conversion_model(**model_inputs)  # type: ignore[missing-argument]
     with model:
-        prior = pm.sample_prior_predictive(samples=samples)
+        prior = pm.sample_prior_predictive(draws=draws)
     if hasattr(prior, "prior_predictive"):
         y_draws = prior.prior_predictive.get("is_written")  # type: ignore[attr-defined]
     else:
@@ -113,9 +113,9 @@ def test_prior_predictive_runs_with_various_sample_sizes(model_inputs, samples):
     arr = np.asarray(y_draws)
     # In PyMC >=5 with InferenceData, dims are (chain, draw, obs)
     if hasattr(prior, "prior_predictive"):
-        assert arr.shape[1] == samples
+        assert arr.shape[1] == draws
     else:
-        assert arr.shape[0] == samples
+        assert arr.shape[0] == draws
 
 
 @pytest.fixture
