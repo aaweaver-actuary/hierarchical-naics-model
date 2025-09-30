@@ -27,15 +27,15 @@ test:
 	fi
 
 cc:
-	RADONFILESENCODING="UTF-8" uv run radon cc . \
-		--min "B" \
+	uv run radon cc . \
+		--min "C" \
 		--total-average \
 		--show-complexity \
 		--order "SCORE" \
 		--no-assert
 
 mi:
-	RADONFILESENCODING="UTF-8" uv run radon mi .
+	uv run radon mi .
 	
 hal: 
 	uv run radon hal .

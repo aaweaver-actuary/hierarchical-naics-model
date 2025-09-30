@@ -54,6 +54,9 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
+    if args.bins < 1:
+        raise ValueError("--bins must be a positive integer.")
+
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -65,10 +68,8 @@ def main(argv=None):
 
     # Temporal split
     if args.cutoff_date and args.date_col:
-        train = df[df[args.date_col] <= args.cutoff_date]
         score = df[df[args.date_col] > args.cutoff_date]
     else:
-        train = df
         score = df
 
     # Metrics

@@ -5,6 +5,7 @@ dependencies=[
     "pandas>=2.3.2",
     "plotly>=6.3.0",
     "polars>=1.33.1",
+    "pyarrow>=21.0.0",
     "pymc>=5.0.0",
     "xarray>=2025.6.1",
 ]
@@ -32,5 +33,5 @@ dev=[
 ]
 
 
-# [tool.pytest]
-# filterwarnings = ignore::UserWarning ignore::FutureWarning
+[tool.coverage.run]
+omit=["src/hierarchical_naics_model/tests/*"]

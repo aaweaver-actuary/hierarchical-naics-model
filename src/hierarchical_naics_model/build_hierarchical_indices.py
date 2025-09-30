@@ -21,7 +21,7 @@ def build_hierarchical_indices(
     codes: Strings,
     *,
     cut_points: Optional[Integers] = None,
-    prefix_fill: Optional[str] = None,
+    prefix_fill: Optional[str] = "0",
 ) -> HierIndex:
     """
     Convert hierarchical codes (e.g., NAICS, ZIP) into per-level integer indices,
@@ -49,9 +49,11 @@ def build_hierarchical_indices(
           at level j to its parent group index at level j-1. For level 0: None.
         - max_len, cut_points
     """
-    # Determine max_code_len before padding
-    if len(codes) == 0:
+
+    # Early error check
+    if not codes:
         raise ValueError("`codes` cannot be empty.")
+
     codes_series = pd.Series(codes, dtype="string")
     max_code_len = int(codes_series.str.len().max())
     cut_points = _get_cut_points(max_code_len, cut_points)
@@ -68,19 +70,14 @@ def build_hierarchical_indices(
             parent_idx_vec = np.empty(len(child_labels), dtype=np.int64)
             for g, child_lab in enumerate(child_labels):
                 parent_lab = str(child_lab)[:parent_cut]
-                try:
-                    parent_idx_vec[g] = parent_map[parent_lab]
-                except KeyError as e:
+                if parent_lab not in parent_map:
                     raise RuntimeError(
                         f"Parent label '{parent_lab}' not found at level {j - 1} "
                         f"for child '{child_lab}' at level {j}."
-                    ) from e
+                    )
+                parent_idx_vec[g] = parent_map[parent_lab]
             parent_index_per_level.append(parent_idx_vec)
         return parent_index_per_level
-
-    cut_points = _get_cut_points(max_code_len, cut_points)
-    _validate_cut_points(cut_points)
-    full_len = max(max_code_len, max(cut_points))
 
     levels: Strings = [f"L{c}" for c in cut_points]
     code_levels, unique_per_level, maps, group_counts = _build_code_levels(
@@ -105,15 +102,11 @@ def build_hierarchical_indices(
 def _get_cut_points(
     max_code_len: int, cut_points: Optional[Integers] = None
 ) -> Integers:
-    has_cut_points = cut_points is not None
-    is_max_code_length_six = max_code_len == 6
-    default_cut_points = list(range(1, max_code_len + 1))
-
-    if has_cut_points:
+    if cut_points is not None:
         return cut_points
-    if is_max_code_length_six:
+    if max_code_len == 6:
         return [2, 3, 4, 5, 6]
-    return default_cut_points
+    return list(range(1, max_code_len + 1))
 
 
 def _build_code_levels(codes, cut_points):
@@ -125,8 +118,7 @@ def _build_code_levels(codes, cut_points):
         labels = codes.str.slice(0, c)
         uniq = pd.Index(labels).unique()
         cat = pd.Categorical(labels, categories=uniq, ordered=False)
-        idx = cat.codes
-        code_levels[:, j] = idx
+        code_levels[:, j] = cat.codes
         lab_arr = np.asarray(uniq, dtype="object")
         unique_per_level.append(lab_arr)
         maps.append({lab: i for i, lab in enumerate(lab_arr)})
@@ -161,20 +153,17 @@ def _validate_cut_points_nonempty(cut_points):
 
 
 def _validate_codes(
-    codes: Strings, prefix_fill: Optional[str] = None, full_len: Optional[int] = None
+    codes: Strings, prefix_fill: Optional[str] = "0", full_len: Optional[int] = None
 ) -> pd.Series:
-    is_codes_empty = len(codes) == 0
-    codes = pd.Series(codes, dtype="string")
-    is_codes_na = codes.isna().any()
-
-    if is_codes_empty:
+    if not codes:
         raise ValueError("`codes` cannot be empty.")
-    if is_codes_na:
+
+    codes_series = pd.Series(codes, dtype="string")
+    if codes_series.isna().any():
         raise ValueError("`codes` contains null/NaN values; please clean input.")
 
-    if prefix_fill is None:
-        prefix_fill = "0"
-    if prefix_fill:
-        length = full_len if full_len is not None else int(codes.str.len().max())
-        codes = codes.str.pad(width=length, side="right", fillchar=prefix_fill)
-    return codes
+    fill = prefix_fill if prefix_fill is not None else "0"
+    if fill:
+        length = full_len if full_len is not None else int(codes_series.str.len().max())
+        return codes_series.str.pad(width=length, side="right", fillchar=fill)
+    return codes_series
