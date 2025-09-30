@@ -105,21 +105,19 @@ def eta_additive(
     _check_effects_list("naics_effects", naics_effects, L_naics)
     _check_effects_list("zip_effects", zip_effects, L_zip)
 
-    # Bounds check for indices
-    validate_level_indices(naics_levels, [len(v) for v in naics_effects])
-    validate_level_indices(zip_levels, [len(v) for v in zip_effects])
-
     eta = np.full(N, float(beta0), dtype=np.float64)
 
-    # Sum NAICS per-level contributions
-    for j in range(L_naics):
-        vec = naics_effects[j]
-        eta += vec[naics_levels[:, j]]
+    if L_naics > 0 and naics_effects and all(len(v) > 0 for v in naics_effects):
+        validate_level_indices(naics_levels, [len(v) for v in naics_effects])
+        for j in range(L_naics):
+            vec = naics_effects[j]
+            eta += vec[naics_levels[:, j]]
 
-    # Sum ZIP per-level contributions
-    for m in range(L_zip):
-        vec = zip_effects[m]
-        eta += vec[zip_levels[:, m]]
+    if L_zip > 0 and zip_effects and all(len(v) > 0 for v in zip_effects):
+        validate_level_indices(zip_levels, [len(v) for v in zip_effects])
+        for m in range(L_zip):
+            vec = zip_effects[m]
+            eta += vec[zip_levels[:, m]]
 
     return eta
 

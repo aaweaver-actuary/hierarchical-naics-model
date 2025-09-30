@@ -71,6 +71,8 @@ def validate_level_indices(levels: np.ndarray, group_counts: Sequence[int]) -> N
     ValueError
         If `levels` is not 2-D, if the number of levels does not match
         `len(group_counts)`, or if any index is out of bounds [0, K_j-1].
+    TypeError
+        If `group_counts` is not a sequence of ints.
 
     Notes
     -----
@@ -89,7 +91,7 @@ def validate_level_indices(levels: np.ndarray, group_counts: Sequence[int]) -> N
     try:
         gc = [int(x) for x in group_counts]
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(
+        raise TypeError(
             f"`group_counts` must be a sequence of ints; got {group_counts!r}"
         ) from exc
 

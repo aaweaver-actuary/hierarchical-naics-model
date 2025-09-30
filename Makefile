@@ -25,12 +25,12 @@ TESTFILE ?=
 test:
 	if [ -z "$(TESTFILE)" ]; then \
 		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -x \
-# 			-p pytest_cov \
-# 			--cov=$(SRC_DIR) \
-# 			--cov-report=term-missing \
-# 			--cov-report=html \
-# 			--cov-report=lcov \
-# 			--cov-fail-under=$(COV_MIN) \
+			-p pytest_cov \
+			--cov=$(SRC_DIR) \
+			--cov-report=term-missing \
+			--cov-report=html \
+			--cov-report=lcov \
+			--cov-fail-under=$(COV_MIN) \
 			src/; \
 	else \
 		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest $(TESTFILE) -x; \
@@ -38,7 +38,7 @@ test:
 
 cc:
 	uv run radon cc src/ \
-		--min "C" \
+		--min "B" \
 		--total-average \
 		--show-complexity \
 		--order "SCORE" \
