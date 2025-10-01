@@ -11,6 +11,3 @@ class QuotesRow(TypedDict):
     naics: str
     zip: str
     quote_date: str  # ISO8601
-
-
-# Add more schema objects as needed (maps/effects artifacts).

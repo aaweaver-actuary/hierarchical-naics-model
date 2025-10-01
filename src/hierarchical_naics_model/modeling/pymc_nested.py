@@ -1,4 +1,3 @@
-# nested_quotewrite/modeling/pymc_nested.py
 from __future__ import annotations
 
 from typing import Sequence

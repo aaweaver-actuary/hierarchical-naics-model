@@ -1,24 +1,22 @@
-from __future__ import annotations
-
+# from __future__ import annotations
 # import argparse
+# import sys
 
 
-def main(argv: list[str] | None = None) -> int:
-    """
-    Generate calibration & ranking reports for a scored dataset.
+# def main(argv: list[str] | None = None) -> int:
+#     """
+#     Generate calibration & ranking reports for a scored dataset.
+#     """
+#     parser = argparse.ArgumentParser(
+#         prog="nested-quotewrite report",
+#         description="Generate calibration & ranking reports for a scored dataset.",
+#     )
+#     parser.add_argument("--scored", type=str, help="Path to scored parquet file.")
+#     parser.add_argument("--outdir", type=str, help="Output directory for reports.")
+#     parser.parse_args(argv)
+#     # TODO: implement actual reporting logic
+#     return 0
 
-    CLI (suggested)
-    ---------------
-    nested-quotewrite report \
-        --scored scored.parquet \
-        --outdir reports/
 
-    Returns
-    -------
-    int
-        Exit code.
-    """
-    # TODO: argparse: load scored, compute calibration_report and ranking_report, write CSV/JSON.
-    # parser = argparse.ArgumentParser(prog="nested-quotewrite report")
-    # TODO: add args and implement
-    return 0
+# if __name__ == "__main__":
+#     sys.exit(main())

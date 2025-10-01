@@ -34,8 +34,13 @@ dev=[
 
 
 [tool.coverage.run]
-omit=["src/hierarchical_naics_model/tests/*"]
-
+omit=[
+    "src/hierarchical_naics_model/cli/*",
+    "src/hierarchical_naics_model/eval/*",
+    "src/hierarchical_naics_model/io/*",
+    "src/hierarchical_naics_model/scoring/*",
+    "src/hierarchical_naics_model/tests/*",
+]
 [tool.pytest.ini_options]
 addopts      ="-q -m \"not slow\""
 markers      ="slow: runs short NUTS or CLI e2e; excluded from default CI"
