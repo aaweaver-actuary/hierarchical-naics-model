@@ -275,18 +275,24 @@ All priors are on the log-odds scale and **non-centered** for sampling stability
 The intercept is **parameterized as an offset from the historical baseline write rate**, with only a weak, zero-centered residual intercept learned during fitting. Specifically:
 
 1. **Compute the baseline write rate $\hat r$** from a training window (e.g., the last 90 days or other appropriate period).
-2. **Define the offset** as the logit of this baseline:
-   ```math
-   \text{offset} = \operatorname{logit}(\hat r)
-   ```
+2. **Define the offset** as the logit of this baseline:  
+
+```math
+\text{offset} = \text{logit}(\hat r)
+```
+
 3. **Place a weak, zero-centered prior on the residual intercept**:
+
    ```math
    \beta_{0,\text{resid}} \sim \mathcal{N}(0,\,0.5)
    ```
-4. **The model intercept is then:**
+   
+5. **The model intercept is then:**
+
    ```math
    \beta_0 = \text{offset} + \beta_{0,\text{resid}}
    ```
+   
 
 This approach ensures that the model is anchored at a data-informed baseline, and only learns deviations if the data warrant it, improving stability and interpretability.
 
