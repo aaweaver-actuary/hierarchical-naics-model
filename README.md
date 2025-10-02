@@ -212,7 +212,7 @@ y_i = \begin{cases}
 
 ### 3.2 Linear Predictor
 
-Let each hierarchy $H \in \{n,z\}$ (NAICS, ZIP) have $L_H$ levels from coarse to fine, with **0-based** indices $j=0,\dots,L_H-1$. For row $i$, let $\ell^{(H)}_{i,j} \in \{0,\dots,K^{(H)}_j-1\}$ be the integer index of the level-$j$ label using the training maps. The log-odds of conversion are
+Let each hierarchy $H \in \{n,z\}$ (NAICS, ZIP) have $L_H$ levels from coarse to fine, with **0-based** indices $j=0,\dots,L_H-1$. For row $i$, let $\ell^{(H)}_{i,j} \in \{0,\dots,K^{(H)}_j-1\}$ be the integer index of the level-$ j $ label using the training maps. The log-odds of conversion are
 
 ```math
 \begin{aligned}
