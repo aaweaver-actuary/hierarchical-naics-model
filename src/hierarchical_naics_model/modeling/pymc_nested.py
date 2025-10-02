@@ -1,45 +1,10 @@
 from __future__ import annotations
 
-from typing import Sequence
-
 import numpy as np
+import pymc as pm
 
-try:
-    import pymc as pm
-except Exception:  # pragma: no cover - allow import in envs without PyMC
-    pm = None  # type: ignore
-
-from ..core.validation import validate_level_indices
-
-
-def _check_inputs(
-    y: np.ndarray,
-    naics_levels: np.ndarray,
-    zip_levels: np.ndarray,
-    naics_group_counts: Sequence[int],
-    zip_group_counts: Sequence[int],
-) -> None:
-    if not isinstance(y, np.ndarray) or y.ndim != 1:
-        raise ValueError("`y` must be a 1-D numpy array.")
-    if not np.issubdtype(y.dtype, np.integer):
-        raise ValueError("`y` must be integer dtype (0/1).")
-    if np.any((y != 0) & (y != 1)):
-        raise ValueError("`y` must contain only 0 or 1.")
-
-    if not isinstance(naics_levels, np.ndarray) or naics_levels.ndim != 2:
-        raise ValueError("`naics_levels` must be a 2-D numpy array (N, J).")
-    if not isinstance(zip_levels, np.ndarray) or zip_levels.ndim != 2:
-        raise ValueError("`zip_levels` must be a 2-D numpy array (N, M).")
-
-    N = y.shape[0]
-    if naics_levels.shape[0] != N or zip_levels.shape[0] != N:
-        raise ValueError(
-            "`y`, `naics_levels`, and `zip_levels` must have the same number of rows."
-        )
-
-    # Bounds checks vs provided group counts
-    validate_level_indices(naics_levels, naics_group_counts)
-    validate_level_indices(zip_levels, zip_group_counts)
+from ..types import Integers
+from ..utils import exp, sigmoid, check_inputs
 
 
 def build_conversion_model_nested_deltas(
@@ -47,8 +12,8 @@ def build_conversion_model_nested_deltas(
     y: np.ndarray,
     naics_levels: np.ndarray,
     zip_levels: np.ndarray,
-    naics_group_counts: Sequence[int],
-    zip_group_counts: Sequence[int],
+    naics_group_counts: Integers,
+    zip_group_counts: Integers,
     target_accept: float = 0.92,
     use_student_t_level0: bool = False,
 ):
@@ -87,9 +52,7 @@ def build_conversion_model_nested_deltas(
     if pm is None:
         raise RuntimeError("PyMC is not installed in this environment.")
 
-    import numpy as np
-
-    _check_inputs(y, naics_levels, zip_levels, naics_group_counts, zip_group_counts)
+    check_inputs(y, naics_levels, zip_levels, naics_group_counts, zip_group_counts)
 
     N = y.shape[0]
     J = naics_levels.shape[1]
@@ -119,17 +82,17 @@ def build_conversion_model_nested_deltas(
         # Base level (j=0)
         _K0 = naics_group_counts[0]
         if use_student_t_level0:
-            base_offset_n = pm.StudentT(
+            naics_base_offset = pm.StudentT(
                 "naics_base_offset", nu=4.0, mu=0.0, sigma=1.0, dims=("naics_g0",)
             )
         else:
-            base_offset_n = pm.Normal(
+            naics_base_offset = pm.Normal(
                 "naics_base_offset", mu=0.0, sigma=1.0, dims=("naics_g0",)
             )
         sigma_naics_base = pm.HalfNormal("naics_sigma_base", sigma=1.0)
         naics_base = pm.Deterministic(
             "naics_base",
-            base_offset_n * sigma_naics_base,  # type: ignore
+            naics_base_offset * sigma_naics_base,  # type: ignore
             dims=("naics_g0",),
         )
 
@@ -138,11 +101,10 @@ def build_conversion_model_nested_deltas(
         if J > 1:
             for j in range(1, J):
                 _Kj = naics_group_counts[j]
-                import numpy as np
 
                 sigma_j = pm.Deterministic(
                     f"naics_sigma_{j}",
-                    sigma_naics_base * np.exp(-kappa_naics * j),  # type: ignore
+                    sigma_naics_base * exp(-kappa_naics * j),  # type: ignore
                 )
                 offset = pm.Normal(
                     f"naics_delta_{j}_offset", mu=0.0, sigma=1.0, dims=(f"naics_g{j}",)
@@ -177,7 +139,7 @@ def build_conversion_model_nested_deltas(
                 _Km = zip_group_counts[m]
                 sigma_m = pm.Deterministic(
                     f"zip_sigma_{m}",
-                    sigma_zip_base * np.exp(-kappa_zip * m),  # type: ignore
+                    sigma_zip_base * exp(-kappa_zip * m),  # type: ignore
                 )
                 offset = pm.Normal(
                     f"zip_delta_{m}_offset", mu=0.0, sigma=1.0, dims=(f"zip_g{m}",)
@@ -201,9 +163,9 @@ def build_conversion_model_nested_deltas(
             eta = eta + model[f"zip_delta_{m}"][model[f"zip_idx_{m}"]]
 
         pm.Deterministic("eta", eta, dims=("obs",))
-        import numpy as np
 
-        p = pm.Deterministic("p", 1 / (1 + np.exp(-eta)), dims=("obs",))
+        # Convert logit to probability
+        p = pm.Deterministic("p", sigmoid(eta), dims=("obs",))
 
         # Likelihood
         pm.Bernoulli("is_written", p=p, observed=model["y_obs"], dims=("obs",))

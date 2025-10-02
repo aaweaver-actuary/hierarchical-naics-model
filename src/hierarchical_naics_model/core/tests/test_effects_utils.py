@@ -7,7 +7,7 @@ def test_ensure_vector_type():
     arr = np.array([1.0, 2.0], dtype=float)
     _ensure_vector("arr", arr, 2)
     with pytest.raises(ValueError, match="must be a numpy.ndarray"):
-        _ensure_vector("arr", [1.0, 2.0], 2)
+        _ensure_vector("arr", [1.0, 2.0], 2)  # type: ignore
 
 
 def test_ensure_vector_ndim():
@@ -31,7 +31,7 @@ def test_ensure_vector_dtype():
 def test_check_effects_list_type():
     effects = [np.array([1.0, 2.0], dtype=float), [1.0, 2.0]]
     with pytest.raises(ValueError, match="must be a numpy.ndarray"):
-        _check_effects_list("effects", effects, 2)
+        _check_effects_list("effects", effects, 2)  # type: ignore
 
 
 def test_check_effects_list_ndim():

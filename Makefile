@@ -14,15 +14,16 @@ CHECKFILE ?=
 check:
 	make lint
 	if [ -n "$(CHECKFILE)" ]; then \
-		uv run pytest --ignore=__OLD $(CHECKFILE); \
+		uv run pytest $(CHECKFILE); \
 	else \
-		uv run pytest --ignore=__OLD; \
+		uv run pytest; \
 	fi
 
 
 .PHONY: test
 TESTFILE ?=
 test:
+	make lint
 	if [ -z "$(TESTFILE)" ]; then \
 		PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest -x \
 			-p pytest_cov \
@@ -54,6 +55,9 @@ radon: cc mi hal
 
 xenon:
 	uv run xenon -b B -m A -a A src/
+
+codecheck: lint test xenon
+
 
 
 test-rec:

@@ -2,7 +2,6 @@
 dependencies=[
     "certifi>=2025.8.3",
     "kaleido>=1.1.0",
-    "pandas>=2.3.2",
     "plotly>=6.3.0",
     "polars>=1.33.1",
     "pyarrow>=21.0.0",
@@ -41,7 +40,8 @@ omit=[
     "src/hierarchical_naics_model/scoring/*",
     "src/hierarchical_naics_model/tests/*",
 ]
+
 [tool.pytest.ini_options]
-addopts      ="-q -m \"not slow\""
+addopts      ="-q --ignore=__OLD -m \"not slow\""
 markers      ="slow: runs short NUTS or CLI e2e; excluded from default CI"
 norecursedirs=["__OLD"]

@@ -28,7 +28,7 @@ def sample_posterior(model, **overrides):
         return pm.sample(**kw)
 
 
-def sample_prior_predictive(model, samples: int = 200, random_seed: int | None = 1):
+def sample_prior_predictive(model, samples: int = 200, random_seed: int = 42):
     """
     Draw prior predictive samples (fast smoke tests / quick sanity).
 
