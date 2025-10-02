@@ -25,3 +25,27 @@ def test_validate_binary_response_with_only_0s_and_1s():
     arr2 = np.array([0, 2, 1])
     with pytest.raises(ValueError):
         _validation._validate_binary_response_with_only_0s_and_1s(arr2)
+
+
+@pytest.mark.parametrize(
+    "validator",
+    (
+        _validation._validate_naics_levels_is_2d_array,
+        _validation._validate_zip_levels_is_2d_array,
+    ),
+)
+def test_validate_levels_requires_2d_arrays(validator):
+    good = np.zeros((3, 2), dtype=int)
+    validator(good)  # should not raise
+
+    with pytest.raises(ValueError):
+        validator(np.zeros(3, dtype=int))
+
+
+def test_validate_input_shape_mismatched_rows():
+    y = np.zeros(4, dtype=int)
+    naics = np.zeros((3, 2), dtype=int)
+    zips = np.zeros((4, 2), dtype=int)
+
+    with pytest.raises(ValueError):
+        _validation._validate_input_shape(y, naics, zips)

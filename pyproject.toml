@@ -39,6 +39,8 @@ omit=[
     "src/hierarchical_naics_model/io/*",
     "src/hierarchical_naics_model/scoring/*",
     "src/hierarchical_naics_model/tests/*",
+    "src/hierarchical_naics_model/**/tests/*",
+    "src/hierarchical_naics_model/**/test_*.py",
 ]
 
 [tool.pytest.ini_options]

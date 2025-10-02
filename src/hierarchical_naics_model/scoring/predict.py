@@ -1,7 +1,6 @@
-# hierarchical_naics_model/scoring/predict.py
 from __future__ import annotations
 
-from typing import Mapping, Sequence, Dict, List
+from typing import Any, Iterable, Mapping, Sequence, List, cast
 
 import numpy as np
 import pandas as pd
@@ -40,7 +39,7 @@ def predict_proba_nested(
     zip_cut_points: Sequence[int],
     naics_level_maps: Sequence[Mapping[str, int]],
     zip_level_maps: Sequence[Mapping[str, int]],
-    effects: Dict[str, object],
+    effects: Mapping[str, Any],
     prefix_fill: str = "0",
     return_components: bool = True,
 ) -> pd.DataFrame:
@@ -78,10 +77,13 @@ def predict_proba_nested(
         Copy of `df_new` with new `eta` and `p` columns (and flags if requested).
     """
     beta0 = float(effects["beta0"])
-    naics_base = effects["naics_base"]  # pd.Series
-    zip_base = effects["zip_base"]
-    naics_deltas = list(effects.get("naics_deltas", []))  # list[pd.Series]
-    zip_deltas = list(effects.get("zip_deltas", []))
+    naics_base = cast(pd.Series, effects["naics_base"])
+    zip_base = cast(pd.Series, effects["zip_base"])
+
+    naics_deltas_raw = effects.get("naics_deltas", [])
+    zip_deltas_raw = effects.get("zip_deltas", [])
+    naics_deltas = list(cast(Iterable[pd.Series], naics_deltas_raw))
+    zip_deltas = list(cast(Iterable[pd.Series], zip_deltas_raw))
 
     L_n = len(naics_cut_points)
     L_z = len(zip_cut_points)
@@ -125,20 +127,20 @@ def predict_proba_nested(
             for j in range(1, L_n):
                 if j - 1 < len(naics_deltas) and n_labels[j] in naics_level_maps[j]:
                     idx = naics_level_maps[j][n_labels[j]]
-                    eta[i] += float(naics_deltas[j - 1][idx])
+                    eta[i] += float(naics_deltas[j - 1].iloc[idx])
                     naics_known[i, j] = True
 
         # ZIP base
         if L_z:
             if z_labels[0] in zip_level_maps[0]:
                 idx0 = zip_level_maps[0][z_labels[0]]
-                eta[i] += float(zip_base[idx0])
+                eta[i] += float(zip_base.iloc[idx0])
                 zip_known[i, 0] = True
 
             for m in range(1, L_z):
                 if m - 1 < len(zip_deltas) and z_labels[m] in zip_level_maps[m]:
                     idx = zip_level_maps[m][z_labels[m]]
-                    eta[i] += float(zip_deltas[m - 1][idx])
+                    eta[i] += float(zip_deltas[m - 1].iloc[idx])
                     zip_known[i, m] = True
 
     p = _logistic(eta)

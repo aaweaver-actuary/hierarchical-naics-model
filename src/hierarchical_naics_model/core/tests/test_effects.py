@@ -201,6 +201,66 @@ def test_eta_nested_happy(small_indices, nested_effects):
     )
 
 
+def test_eta_nested_requires_2d_arrays(nested_effects):
+    naics_base, naics_deltas, zip_base, zip_deltas = nested_effects
+
+    with pytest.raises(ValueError):
+        eta_nested(
+            0.0,
+            naics_base,
+            naics_deltas,
+            zip_base,
+            zip_deltas,
+            np.array([0, 1], dtype=int),  # not 2-D
+            np.zeros((1, 1), dtype=int),
+        )
+
+    with pytest.raises(ValueError):
+        eta_nested(
+            0.0,
+            naics_base,
+            naics_deltas,
+            zip_base,
+            zip_deltas,
+            np.zeros((1, 1), dtype=int),
+            np.array([0, 1], dtype=int),
+        )
+
+
+def test_eta_nested_uses_base_vectors(small_indices, nested_effects):
+    naics_hits: list[np.ndarray] = []
+    zip_hits: list[np.ndarray] = []
+
+    class TrackingArray(np.ndarray):
+        def __new__(cls, data, hits):
+            obj = np.asarray(data, dtype=float).view(cls)
+            obj._hits = hits
+            return obj
+
+        def __getitem__(self, item):
+            self._hits.append(np.asarray(item))  # store copy for inspection
+            return super().__getitem__(item)
+
+    naics_levels, zip_levels = small_indices
+    naics_base_raw, naics_deltas, zip_base_raw, zip_deltas = nested_effects
+
+    naics_base = TrackingArray(naics_base_raw, naics_hits)
+    zip_base = TrackingArray(zip_base_raw, zip_hits)
+
+    eta_nested(
+        -0.5,
+        naics_base,
+        naics_deltas,
+        zip_base,
+        zip_deltas,
+        naics_levels,
+        zip_levels,
+    )
+
+    assert naics_hits  # ensure base vector was indexed
+    assert zip_hits
+
+
 # -----------------------
 # eta_nested: errors
 # -----------------------

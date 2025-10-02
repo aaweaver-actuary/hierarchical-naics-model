@@ -5,12 +5,14 @@ import itertools
 from typing import List, Mapping
 
 import numpy as np
+import pandas as pd
 import pytest
 
 # import the module under test
 from hierarchical_naics_model.core.hierarchy import (
     build_hierarchical_indices,
     make_backoff_resolver,
+    _right_pad,
 )
 
 
@@ -65,6 +67,12 @@ def test_build_hierarchical_indices_invalid_cut_points_raises(cut_points):
 def test_build_hierarchical_indices_invalid_prefix_fill_raises(fill):
     with pytest.raises(ValueError):
         build_hierarchical_indices(["52"], cut_points=[2, 3], prefix_fill=fill)
+
+
+def test_right_pad_requires_positive_width(toy_codes_mixed):
+    series = pd.Series(toy_codes_mixed, dtype="string")
+    with pytest.raises(ValueError):
+        _right_pad(series, width=0, fill="0")
 
 
 # -------------------------

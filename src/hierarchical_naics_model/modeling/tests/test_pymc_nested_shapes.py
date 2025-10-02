@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from hierarchical_naics_model.modeling import pymc_nested as pymc_nested_module
 from hierarchical_naics_model.modeling.pymc_nested import (
     build_conversion_model_nested_deltas,
 )
@@ -103,3 +104,47 @@ def test_input_validation_errors():
             naics_group_counts=ngc,
             zip_group_counts=zgc,
         )
+
+
+def test_model_requires_pymc(monkeypatch):
+    y = np.zeros(1, dtype=int)
+    nlev = np.zeros((1, 1), dtype=int)
+    zlev = np.zeros((1, 1), dtype=int)
+
+    monkeypatch.setattr(pymc_nested_module, "pm", None)
+
+    with pytest.raises(RuntimeError):
+        pymc_nested_module.build_conversion_model_nested_deltas(
+            y=y,
+            naics_levels=nlev,
+            zip_levels=zlev,
+            naics_group_counts=[1],
+            zip_group_counts=[1],
+        )
+
+
+def test_student_t_branch(monkeypatch):
+    y = np.zeros(3, dtype=int)
+    nlev = np.zeros((3, 1), dtype=int)
+    zlev = np.zeros((3, 1), dtype=int)
+
+    called: list[str] = []
+
+    def recorder(name, **kwargs):
+        called.append(name)
+        return pm.Normal(name, mu=0.0, sigma=1.0, dims=kwargs.get("dims"))
+
+    monkeypatch.setattr(pymc_nested_module.pm, "StudentT", recorder)
+
+    model = pymc_nested_module.build_conversion_model_nested_deltas(
+        y=y,
+        naics_levels=nlev,
+        zip_levels=zlev,
+        naics_group_counts=[1],
+        zip_group_counts=[1],
+        use_student_t_level0=True,
+    )
+
+    assert "naics_base_offset" in called
+    assert "zip_base_offset" in called
+    assert "naics_base_offset" in model.named_vars
