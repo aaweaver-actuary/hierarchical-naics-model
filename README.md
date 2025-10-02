@@ -166,31 +166,31 @@ This section describes in detail the **statistical model**, its structure, and w
 
 **Indices:**
 
-- \( i = 1, \ldots, N \): index over rows (quotes).
-- \( j = 0, \ldots, J-1 \): index over NAICS hierarchy levels (e.g., \( J=4 \) for [2,3,4,6] cuts).
-- \( m = 0, \ldots, M-1 \): index over ZIP hierarchy levels (e.g., \( M=5 \) for [2,3,4,5] cuts).
+- $i = 1, \ldots, N$: index over rows (quotes).
+- $j = 0, \ldots, J-1$: index over NAICS hierarchy levels (e.g., $J=4$ for [2,3,4,6] cuts).
+- $m = 0, \ldots, M-1$: index over ZIP hierarchy levels (e.g., $M=5$ for [2,3,4,5] cuts).
 
 **Variables:**
 
-- \( y_i \): binary response for quote \( i \) (converted or not).
-- \( X_i \): feature vector for quote \( i \) (including NAICS and ZIP codes).
-- \( \eta_i \): linear predictor for quote \( i \) (log-odds of conversion).
-- \( p_i \): predicted probability of conversion for quote \( i \).
-- \( \beta_0 \): global intercept.	
-- \( b^{(n)} \): NAICS base effect vector (level 0).
+- $y_i$: binary response for quote $i$ (converted or not).
+- $X_i$: feature vector for quote $i$ (including NAICS and ZIP codes).
+- $\eta_i$: linear predictor for quote $i$ (log-odds of conversion).
+- $p_i$: predicted probability of conversion for quote $i$.
+- $\beta_0$: global intercept.	
+- $b^{(n)}$: NAICS base effect vector (level 0).
 ---
 
 ### 3.1 Data & Hierarchies
 
 - **Outcome**:  
-  Binary response \( y_i \in \{0,1\} \) for each quote \( i \), where 
+  Binary response $y_i \in \{0,1\}$ for each quote $i$, where 
 
-\[
+```math
 y_i = \begin{cases}
 1 & \text{if quote } i \text{ converted to written policy} \\
 0 & \text{otherwise}
 \end{cases}
-\]
+```
 
 - **Predictors**:  
   Two hierarchical categorical variables:
@@ -212,9 +212,9 @@ y_i = \begin{cases}
 
 ### 3.2 Linear Predictor
 
-Let each hierarchy \( H \in \{n,z\} \) (NAICS, ZIP) have \( L_H \) levels from coarse to fine, with **0-based** indices \( j=0,\dots,L_H-1 \). For row \( i \), let \( \ell^{(H)}_{i,j} \in \{0,\dots,K^{(H)}_j-1\} \) be the integer index of the level-\( j \) label using the training maps. The log-odds of conversion are
+Let each hierarchy $H \in \{n,z\}$ (NAICS, ZIP) have $L_H$ levels from coarse to fine, with **0-based** indices $j=0,\dots,L_H-1$. For row $i$, let $\ell^{(H)}_{i,j} \in \{0,\dots,K^{(H)}_j-1\}$ be the integer index of the level-$j$ label using the training maps. The log-odds of conversion are
 
-\[
+```math
 \begin{aligned}
 \eta_i
 =&\; \beta_0 &&\text{(global intercept)} \\
@@ -223,14 +223,14 @@ Let each hierarchy \( H \in \{n,z\} \) (NAICS, ZIP) have \( L_H \) levels from c
 &+ b^{(z)}_{\ell^{(z)}_{i,0}}
 + \sum_{m=1}^{L_z-1} \delta^{(z)}_{m,\ell^{(z)}_{i,m}} &&\text{(ZIP effects)}
 \end{aligned}
-\]
+```
 
-We define \( K^{(H)}_j \) as the number of unique labels at level \( j \) of hierarchy \( H \). The model components are:
+We define $K^{(H)}_j$ as the number of unique labels at level $j$ of hierarchy $H$. The model components are:
 
-- \( \beta_0 \in \mathbb{R} \): global intercept.
-- \( b^{(H)} \in \mathbb{R}^{K^{(H)}_0} \): **base effects** at the coarsest level (\( j=0 \)).
-- \( \delta^{(H)}_{j} \in \mathbb{R}^{K^{(H)}_j} \): **delta effects** at deeper level \( j\ge 1 \), i.e., deviations from the base.
-- \( p_i = \sigma(\eta_i) \), where \( \sigma \) is the logistic sigmoid.
+- $\beta_0 \in \mathbb{R}$: global intercept.
+- $b^{(H)} \in \mathbb{R}^{K^{(H)}_0}$: **base effects** at the coarsest level ($j=0$).
+- $\delta^{(H)}_{j} \in \mathbb{R}^{K^{(H)}_j}$: **delta effects** at deeper level $j\ge 1$, i.e., deviations from the base.
+- $p_i = \sigma(\eta_i)$, where $\sigma$ is the logistic sigmoid.
 
 **Interpretation.** The base encodes broad average effects (e.g., 2-digit NAICS, coarse ZIP). Deltas add fine-grained deviations **only where supported by data**. During scoring, a level’s contribution is **0** if that exact label was unseen in training (strict per-level backoff; no parent substitution).
 
@@ -269,24 +269,24 @@ def eta_from_indices(beta0, naics_levels, zip_levels, naics_base, naics_deltas, 
 ---
 ### 3.3 Priors & Shrinkage (non-centered)
 
-All priors are on the log-odds scale and **non-centered** for sampling stability. Let hierarchies be \( H \in \{n,z\} \) (NAICS, ZIP), with \( L_H \) levels and \( K^{(H)}_j \) groups at level \( j \).
+All priors are on the log-odds scale and **non-centered** for sampling stability. Let hierarchies be $H \in \{n,z\}$ (NAICS, ZIP), with $L_H$ levels and $K^{(H)}_j$ groups at level $j$.
 
 **Intercept**  
 The intercept is **parameterized as an offset from the historical baseline write rate**, with only a weak, zero-centered residual intercept learned during fitting. Specifically:
 
-1. **Compute the baseline write rate \( \hat r \)** from a training window (e.g., the last 90 days or other appropriate period).
+1. **Compute the baseline write rate $\hat r$** from a training window (e.g., the last 90 days or other appropriate period).
 2. **Define the offset** as the logit of this baseline:
-   \[
+   ```math
    \text{offset} = \operatorname{logit}(\hat r)
-   \]
+   ```
 3. **Place a weak, zero-centered prior on the residual intercept**:
-   \[
+   ```math
    \beta_{0,\text{resid}} \sim \mathcal{N}(0,\,0.5)
-   \]
+   ```
 4. **The model intercept is then:**
-   \[
+   ```math
    \beta_0 = \text{offset} + \beta_{0,\text{resid}}
-   \]
+   ```
 
 This approach ensures that the model is anchored at a data-informed baseline, and only learns deviations if the data warrant it, improving stability and interpretability.
 
@@ -305,44 +305,44 @@ with pm.Model() as model:
     # ... add base/delta effects, eta, p, and likelihood ...
 ```
 
-**Base effects (level 0, per hierarchy \( H \))**  
-For the coarsest level (\( j=0 \)) with \( K^{(H)}_0 \) groups:
-\[
+**Base effects (level 0, per hierarchy $H$)**  
+For the coarsest level ($j=0$) with $K^{(H)}_0$ groups:
+```math
 u^{(H)}_0 \sim \mathcal{N}\!\big(0,\,I_{K^{(H)}_0}\big),\qquad
 \sigma^{(H)}_0 \sim \text{HalfNormal}(1),\qquad
 b^{(H)} = \sigma^{(H)}_0 \, u^{(H)}_0 \in \mathbb{R}^{K^{(H)}_0}.
-\]
+```
 
-*Optional heavy tails:* replace \( u^{(H)}_0 \sim \mathcal{N}(0, I) \) with \( u^{(H)}_0 \sim \text{StudentT}(\nu, 0, 1) \) (e.g., \( \nu \in [3,5] \)) if a few large group effects are plausible.
+*Optional heavy tails:* replace $u^{(H)}_0 \sim \mathcal{N}(0, I)$ with $u^{(H)}_0 \sim \text{StudentT}(\nu, 0, 1)$ (e.g., $\nu \in [3,5]$) if a few large group effects are plausible.
 
-**Delta effects (levels \(j \ge 1\))**  
-For each deeper level \( j = 1,\dots,L_H-1 \) with \( K^{(H)}_j \) groups:
-\[
+**Delta effects (levels $j \ge 1$)**  
+For each deeper level $j = 1,\dots,L_H-1$ with $K^{(H)}_j$ groups:
+```math
 \begin{aligned}
 \kappa^{(H)} &\sim \text{HalfNormal}(1), \\
 \sigma^{(H)}_j &= \sigma^{(H)}_0 \,\exp\!\big(-\kappa^{(H)}\, j\big), \\
 u^{(H)}_j &\sim \mathcal{N}\!\big(0,\,I_{K^{(H)}_j}\big), \\
 \delta^{(H)}_j &= \sigma^{(H)}_j \, u^{(H)}_j \in \mathbb{R}^{K^{(H)}_j}.
 \end{aligned}
-\]
+```
 
-This enforces **exponentially stronger shrinkage** at deeper levels (\( j\uparrow \Rightarrow \sigma^{(H)}_j \downarrow \)), preventing overfitting of sparse groups while allowing meaningful deviations when warranted by data.
+This enforces **exponentially stronger shrinkage** at deeper levels ($j\uparrow \Rightarrow \sigma^{(H)}_j \downarrow$), preventing overfitting of sparse groups while allowing meaningful deviations when warranted by data.
 
 **Likelihood and link**
-\[
+```math
 p_i = \sigma(\eta_i), \qquad y_i \sim \text{Bernoulli}(p_i),
-\]
-where \( \sigma(\cdot) \) is the logistic sigmoid.
+```
+where $\sigma(\cdot)$ is the logistic sigmoid.
 
 ---
 
 ### 3.4 Likelihood & Inference
 
 - **Link function**:
-  \( p_i = \sigma(\eta_i) \text{ where } \sigma \text{ is the logistic sigmoid.} \)
+ $p_i = \sigma(\eta_i) \text{ where } \sigma \text{ is the logistic sigmoid.}$
 
 - **Likelihood**:  
-  \( y_i \sim \text{Bernoulli}(p_i) \)
+ $y_i \sim \text{Bernoulli}(p_i)$
 
 - **Inference**:  
   NUTS/HMC sampling with PyMC.  
@@ -353,7 +353,7 @@ where \( \sigma(\cdot) \) is the logistic sigmoid.
 
 ### 3.5 Extraction → Scoring (Backoff Rules)
 
-- **Extraction**: Posterior means of \( \beta_0 \), all base vectors, and all deltas.  
+- **Extraction**: Posterior means of $\beta_0$, all base vectors, and all deltas.  
 - **Scoring**: New codes are padded and sliced the same way. For each row:
   - If base-level label exists: include its effect. Otherwise 0.  
   - For each delta: include only if that exact label was seen in training; otherwise 0.  
@@ -537,7 +537,7 @@ print(rk["summary"])
 ### 4.5 What You Get
 
 - **Posterior means** for intercept, NAICS/ZIP base effects, and deltas.
-- **Probabilities** \( p \) for each row, with `*_known` flags and `any_backoff` indicating whether backoff occurred.
+- **Probabilities** $p$ for each row, with `*_known` flags and `any_backoff` indicating whether backoff occurred.
 - **Calibration metrics** (ECE, Brier, log-loss) for probability quality.
 - **Ranking metrics** (Precision@k%, Lift@k%) for sales efficiency.
 
@@ -571,9 +571,9 @@ This section explains the **design tradeoffs**, potential **failure modes**, and
    - This is a standard best practice in Bayesian hierarchical modeling for computational stability, but does not affect the model’s substantive interpretation.
 
 4. **Exponential shrinkage with depth**
-- Variance at deeper levels decreases exponentially: \( \sigma_d = \sigma_{base}\exp(-\kappa d) \).
+   - Variance at deeper levels decreases exponentially: $\sigma_d = \sigma_{base}\exp(-\kappa d)$.
    - Allows deeper refinements but discourages large deviations unless strongly supported.
-- The decay rate \( \kappa \) is itself learned.
+   - The decay rate $\kappa$ is itself learned.
 
 5. **Evaluation metrics**
    - Calibration (ECE, Brier, log-loss) and ranking (Precision@k%, Lift@k%) chosen because they directly measure **probability quality** and **triage efficiency**.
