@@ -1,9 +1,9 @@
 import argparse
+import sys
 from hierarchical_naics_model.synthgen.generate import (
     HierSpec,
     generate_synthetic_dataset,
 )
-import polars as pl
 
 
 def main():
@@ -33,13 +33,25 @@ def main():
     )
     args = parser.parse_args()
 
-    naics_spec = HierSpec(
-        cut_points=args.naics_cut_points, branching=args.naics_branching
-    )
-    zip_spec = HierSpec(cut_points=args.zip_cut_points, branching=args.zip_branching)
-    df, artifacts = generate_synthetic_dataset(
-        n=args.n, naics_spec=naics_spec, zip_spec=zip_spec, seed=args.seed
-    )
+    try:
+        if args.n < 1:
+            print("Error: --n must be >= 1", file=sys.stderr)
+            sys.exit(1)
+        naics_spec = HierSpec(
+            cut_points=args.naics_cut_points, branching=args.naics_branching
+        )
+        zip_spec = HierSpec(
+            cut_points=args.zip_cut_points, branching=args.zip_branching
+        )
+        df, artifacts = generate_synthetic_dataset(
+            n=args.n, naics_spec=naics_spec, zip_spec=zip_spec, seed=args.seed
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    import polars as pl
+
     pl.from_pandas(df).write_parquet(args.out)
     print(f"Synthetic data written to {args.out} with shape {df.shape}")
 
