@@ -203,3 +203,34 @@ def test_predict_proba_nested_any_backoff(tiny_maps_and_effects, naics, zip, exp
         return_components=True,
     )
     assert out.loc[0, "any_backoff"] == expected
+
+
+def test_predict_proba_nested_multiple_zip_levels():
+    df = pd.DataFrame({"naics": ["52"], "zip": ["123"]})
+    naics_cut = [2]
+    zip_cut = [2, 3]
+    naics_maps = [{"52": 0}]
+    zip_maps = [{"12": 0}, {"123": 0}]
+    effects = {
+        "beta0": 0.0,
+        "naics_base": pd.Series([0.0]),
+        "naics_deltas": [],
+        "zip_base": pd.Series([0.1]),
+        "zip_deltas": [pd.Series([0.05])],
+    }
+
+    out = predict_proba_nested(
+        df,
+        naics_col="naics",
+        zip_col="zip",
+        naics_cut_points=naics_cut,
+        zip_cut_points=zip_cut,
+        naics_level_maps=naics_maps,
+        zip_level_maps=zip_maps,
+        effects=effects,
+        prefix_fill="0",
+        return_components=True,
+    )
+
+    assert abs(out.loc[0, "eta"] - 0.15) < 1e-12
+    assert bool(out.loc[0, "zip_L3_known"]) is True

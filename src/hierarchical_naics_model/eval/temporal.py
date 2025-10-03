@@ -27,5 +27,9 @@ def temporal_split(
     (train_df, valid_df)
         Two DataFrames preserving original columns.
     """
-    # TODO: implement (pd.to_datetime, boolean split).
-    raise NotImplementedError
+    cutoff = pd.to_datetime(cutoff_inclusive)
+    dates = pd.to_datetime(df[date_col])
+    mask = dates <= cutoff
+    train_df = df.loc[mask].copy()
+    valid_df = df.loc[~mask].copy()
+    return train_df, valid_df

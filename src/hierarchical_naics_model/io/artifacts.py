@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict, List, Mapping, TypedDict
+from pathlib import Path
+import pickle
+from typing import Dict, List, TypedDict
+
 import pandas as pd
 
 
@@ -8,7 +11,7 @@ class LevelMaps(TypedDict):
     """Per-level label→index dictionaries for one hierarchy."""
 
     levels: List[str]
-    maps: List[Mapping[str, int]]
+    maps: List[Dict[str, int]]
     cut_points: List[int]
 
 
@@ -32,33 +35,43 @@ class Artifacts(TypedDict):
 
 
 def save_artifacts(art: Artifacts, path: str) -> None:
-    """
-    Serialize artifacts bundle to disk (e.g., pickle/feather/JSON hybrids).
+    """Serialize the artifacts bundle with pickle.
 
-    Parameters
-    ----------
-    art
-        Artifacts bundle.
-    path
-        Destination path (directory or file per your format).
+    The representation is intentionally simple: a single pickle file containing
+    primitive Python containers and pandas objects. For a production system we
+    would likely switch to a more structured format (Parquet/JSON), but this is
+    sufficient for a proof of concept and keeps the code path compact.
     """
-    # TODO: implement (choose a format: joblib + feather e.g.).
-    raise NotImplementedError
+
+    target = Path(path)
+    if target.suffix == "":  # allow passing a directory
+        target.mkdir(parents=True, exist_ok=True)
+        target = target / "artifacts.pkl"
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+    with target.open("wb") as f:
+        pickle.dump(art, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def load_artifacts(path: str) -> Artifacts:
-    """
-    Load artifacts bundle from disk.
+    """Load the artifacts bundle previously written by :func:`save_artifacts`."""
 
-    Parameters
-    ----------
-    path
-        Source path.
+    source = Path(path)
+    if source.is_dir():
+        source = source / "artifacts.pkl"
+    if not source.exists():  # pragma: no cover - defensive guard
+        raise FileNotFoundError(f"Artifacts file not found: {source}")
 
-    Returns
-    -------
-    Artifacts
-        Deserialized bundle.
-    """
-    # TODO: implement
-    raise NotImplementedError
+    with source.open("rb") as f:
+        art = pickle.load(f)
+
+    if not isinstance(art, dict):  # pragma: no cover - defensive guard
+        raise ValueError(f"Artifacts file {source} did not contain a dictionary.")
+
+    required_keys = {"naics_maps", "zip_maps", "effects", "meta"}
+    missing = required_keys - set(art.keys())
+    if missing:  # pragma: no cover - defensive guard
+        raise ValueError(f"Artifacts file {source} is missing keys: {sorted(missing)}")
+
+    return art  # type: ignore[return-value]

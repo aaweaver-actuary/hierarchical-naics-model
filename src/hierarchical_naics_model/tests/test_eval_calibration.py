@@ -4,6 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from hierarchical_naics_model.eval.calibration import calibration_report
+import pandas as pd
 import pytest
 
 
@@ -80,3 +81,18 @@ def test_calibration_report_all_zero_or_one_degenerate():
     # log_loss finite due to clipping
     assert np.isfinite(rep0["log_loss"])
     assert np.isfinite(rep1["log_loss"])
+
+
+def test_calibration_report_validates_shapes():
+    y = np.array([0, 1, 1])
+    p = np.array([[0.1, 0.2, 0.3]])
+    with pytest.raises(ValueError):
+        calibration_report(y, p, bins=3)
+
+
+def test_calibration_report_handles_empty_input():
+    rep = calibration_report(np.array([], dtype=int), np.array([], dtype=float), bins=3)
+    reliability = rep["reliability"]
+    assert isinstance(reliability, pd.DataFrame)
+    assert reliability.empty
+    assert np.isnan(rep["ece"]) and np.isnan(rep["brier"])

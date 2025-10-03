@@ -69,3 +69,31 @@ def test_ranking_report_edge_case_precisions(y, p, ks, expected_precision):
         assert abs(df.iloc[idx].precision - exp) < 1e-12, (
             f"Expected precision {exp}, got {df.iloc[idx].precision}"
         )
+
+
+def test_ranking_report_empty_dataset():
+    rep = ranking_report(np.array([], int), np.array([], float), ks=(10,))
+    assert rep["summary"].empty
+    assert np.isnan(rep["base_rate"])
+
+
+def test_ranking_report_validates_shapes():
+    y = np.array([0, 1, 0])
+    p = np.array([[0.1, 0.2, 0.3]])
+    with pytest.raises(ValueError):
+        ranking_report(y, p, ks=(10,))
+
+
+def test_ranking_report_zero_percent_threshold():
+    rep = ranking_report(np.array([1, 0], int), np.array([0.9, 0.1], float), ks=(0,))
+    df = rep["summary"]
+    assert df.iloc[0].k_count == 0
+    assert df.iloc[0].precision == 0.0
+
+
+def test_ranking_report_zero_base_rate_branch():
+    y = np.zeros(5, int)
+    p = np.linspace(0, 1, 5)
+    rep = ranking_report(y, p, ks=(10,))
+    df = rep["summary"]
+    assert df.iloc[0].lift == 0.0

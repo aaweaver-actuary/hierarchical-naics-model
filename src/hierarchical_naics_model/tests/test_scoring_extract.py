@@ -92,8 +92,22 @@ def test_extract_effect_tables_nested_zip_base_mean_is_correct(extracted_effects
     "posterior,expected_beta0",
     [
         ({"beta0": np.array([[0.0, 0.0]])}, 0.0),
-        ({"beta0": np.array([[1.0, 1.0]])}, 1.0),
-        ({"beta0": np.array([[0.5, 1.5]])}, 1.0),
+        (
+            {
+                "beta0": np.array([[1.0, 1.0]]),
+                "naics_base": np.zeros((1, 1, 1)),
+                "zip_base": np.zeros((1, 1, 1)),
+            },
+            1.0,
+        ),
+        (
+            {
+                "beta0": np.array([[0.5, 1.5]]),
+                "naics_base": np.zeros((1, 1, 1)),
+                "zip_base": np.zeros((1, 1, 1)),
+            },
+            1.0,
+        ),
     ],
 )
 def test_extract_effect_tables_nested_beta0_parametrized(posterior, expected_beta0):
@@ -126,3 +140,48 @@ def test_extract_effect_tables_nested_naics_base_parametrized(naics_base, expect
     else:
         eff = extract_effect_tables_nested(idata)
         np.testing.assert_allclose(eff["naics_base"].values, expected)
+
+
+def test_extract_effect_tables_nested_requires_posterior_group():
+    class Dummy:
+        def groups(self):
+            return []
+
+        posterior = None
+
+    with pytest.raises(ValueError, match="does not contain"):
+        extract_effect_tables_nested(Dummy())
+
+
+def test_extract_effect_tables_nested_missing_beta0():
+    idata = az.from_dict(
+        posterior={"naics_base": np.zeros((1, 1, 1)), "zip_base": np.zeros((1, 1, 1))},
+        coords={"naics_g0": [0], "zip_g0": [0]},
+        dims={
+            "naics_base": ["chain", "draw", "naics_g0"],
+            "zip_base": ["chain", "draw", "zip_g0"],
+        },
+    )
+
+    with pytest.raises(ValueError, match="missing variable 'beta0'"):
+        extract_effect_tables_nested(idata)
+
+
+def test_extract_effect_tables_nested_missing_naics_base():
+    idata = az.from_dict(
+        posterior={"beta0": np.zeros((1, 1)), "zip_base": np.zeros((1, 1, 1))},
+        coords={"zip_g0": [0]},
+        dims={"beta0": ["chain", "draw"], "zip_base": ["chain", "draw", "zip_g0"]},
+    )
+
+    with pytest.raises(ValueError, match="missing variable 'naics_base'"):
+        extract_effect_tables_nested(idata)
+
+
+def test_extract_effect_tables_nested_runtime_without_xarray(monkeypatch, stub_idata):
+    import hierarchical_naics_model.scoring.extract as extract_mod
+
+    monkeypatch.setattr(extract_mod, "xr", None)
+
+    with pytest.raises(RuntimeError):
+        extract_mod.extract_effect_tables_nested(stub_idata)
