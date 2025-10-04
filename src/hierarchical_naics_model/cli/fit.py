@@ -10,8 +10,7 @@ import numpy as np
 from ..core.hierarchy import build_hierarchical_indices
 from ..io.artifacts import Artifacts, LevelMaps, save_artifacts
 from ..io.datasets import load_parquet
-from ..modeling.pymc_nested import build_conversion_model_nested_deltas
-from ..modeling.sampling import sample_posterior
+from ..modeling.pymc_nested import PymcNestedDeltaStrategy
 from ..scoring.extract import extract_effect_tables_nested
 
 
@@ -102,6 +101,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Use StudentT offsets for level-0 base vectors.",
     )
     parser.add_argument(
+        "--inference-strategy",
+        choices=("pymc_nuts", "pymc_advi", "pymc_map"),
+        default="pymc_nuts",
+        help="Inference backend to use (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--variational-steps",
+        type=int,
+        default=20000,
+        help="Gradient steps for ADVI when using --inference-strategy=pymc_advi.",
+    )
+    parser.add_argument(
+        "--map-method",
+        default="BFGS",
+        help="Optimizer method for MAP when using --inference-strategy=pymc_map.",
+    )
+    parser.add_argument(
         "--artifacts",
         required=True,
         help="Output file or directory for fitted artifacts.",
@@ -152,17 +168,40 @@ def main(argv: List[str] | None = None) -> int:
     naics_levels = naics_idx["code_levels"].astype(int, copy=False)
     zip_levels = zip_idx["code_levels"].astype(int, copy=False)
 
-    model = build_conversion_model_nested_deltas(
+    strategy_name = args.inference_strategy
+    if strategy_name == "pymc_nuts":
+        strategy = PymcNestedDeltaStrategy(
+            default_target_accept=float(args.target_accept),
+            use_student_t_level0=bool(args.student_t_level0),
+        )
+    elif strategy_name == "pymc_advi":
+        from ..modeling.pymc_nested import PymcADVIStrategy
+
+        strategy = PymcADVIStrategy(
+            default_target_accept=float(args.target_accept),
+            use_student_t_level0=bool(args.student_t_level0),
+            fit_steps=int(args.variational_steps),
+        )
+    elif strategy_name == "pymc_map":
+        from ..modeling.pymc_nested import PymcMAPStrategy
+
+        strategy = PymcMAPStrategy(
+            default_target_accept=float(args.target_accept),
+            use_student_t_level0=bool(args.student_t_level0),
+            map_kwargs={"method": args.map_method},
+        )
+    else:  # pragma: no cover - defensive
+        raise ValueError(f"Unknown inference strategy '{strategy_name}'")
+
+    model = strategy.build_model(
         y=y,
         naics_levels=naics_levels,
         zip_levels=zip_levels,
         naics_group_counts=naics_idx["group_counts"],
         zip_group_counts=zip_idx["group_counts"],
-        target_accept=float(args.target_accept),
-        use_student_t_level0=bool(args.student_t_level0),
     )
 
-    idata = sample_posterior(
+    idata = strategy.sample_posterior(
         model,
         draws=int(args.draws),
         tune=int(args.tune),

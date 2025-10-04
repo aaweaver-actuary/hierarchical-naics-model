@@ -1,13 +1,29 @@
 from __future__ import annotations
 
+from typing import Any, Dict, Optional
+
 import numpy as np
 import pymc as pm
 
+try:  # pragma: no cover - optional dependency handled gracefully
+    import arviz as az
+except Exception:  # noqa: BLE001 - best effort import
+    az = None  # type: ignore
+
 from ..types import Integers
 from ..utils import exp, sigmoid, check_inputs
+from .sampling import sample_posterior as _pymc_sample_posterior
+from .strategies import ConversionModelStrategy
+
+__all__ = [
+    "build_conversion_model_nested_deltas",
+    "PymcNestedDeltaStrategy",
+    "PymcADVIStrategy",
+    "PymcMAPStrategy",
+]
 
 
-def build_conversion_model_nested_deltas(
+def _construct_pymc_nested_model(
     *,
     y: np.ndarray,
     naics_levels: np.ndarray,
@@ -181,3 +197,200 @@ def build_conversion_model_nested_deltas(
         )
 
     return model
+
+
+class PymcNestedDeltaStrategy(ConversionModelStrategy):
+    """Strategy wrapper around the PyMC nested-delta implementation."""
+
+    def __init__(
+        self,
+        *,
+        default_target_accept: float = 0.92,
+        use_student_t_level0: bool = False,
+    ) -> None:
+        self.default_target_accept = float(default_target_accept)
+        self.use_student_t_level0 = bool(use_student_t_level0)
+
+    def build_model(
+        self,
+        *,
+        y: np.ndarray,
+        naics_levels: np.ndarray,
+        zip_levels: np.ndarray,
+        naics_group_counts: Integers,
+        zip_group_counts: Integers,
+    ) -> Any:
+        return _construct_pymc_nested_model(
+            y=y,
+            naics_levels=naics_levels,
+            zip_levels=zip_levels,
+            naics_group_counts=naics_group_counts,
+            zip_group_counts=zip_group_counts,
+            target_accept=self.default_target_accept,
+            use_student_t_level0=self.use_student_t_level0,
+        )
+
+    def sample_posterior(
+        self,
+        model: Any,
+        *,
+        draws: int,
+        tune: int,
+        chains: int,
+        cores: int,
+        target_accept: float | None = None,
+        progressbar: bool = False,
+        random_seed: int | None = None,
+    ) -> Any:
+        overrides = {
+            "draws": draws,
+            "tune": tune,
+            "chains": chains,
+            "cores": cores,
+            "progressbar": progressbar,
+        }
+        overrides["target_accept"] = (
+            float(target_accept)
+            if target_accept is not None
+            else self.default_target_accept
+        )
+        if random_seed is not None:
+            overrides["random_seed"] = random_seed
+        return _pymc_sample_posterior(model, **overrides)
+
+
+class PymcADVIStrategy(PymcNestedDeltaStrategy):
+    """Variational inference strategy using PyMC's ADVI/fit API."""
+
+    def __init__(
+        self,
+        *,
+        default_target_accept: float = 0.92,
+        use_student_t_level0: bool = False,
+        fit_steps: int = 20000,
+        fit_kwargs: Optional[Dict[str, Any]] = None,
+        method: str = "advi",
+    ) -> None:
+        super().__init__(
+            default_target_accept=default_target_accept,
+            use_student_t_level0=use_student_t_level0,
+        )
+        self.fit_steps = int(fit_steps)
+        self.fit_kwargs = dict(fit_kwargs or {})
+        self.method = method
+
+    def sample_posterior(
+        self,
+        model: Any,
+        *,
+        draws: int,
+        tune: int,
+        chains: int,
+        cores: int,
+        target_accept: float | None = None,
+        progressbar: bool = False,
+        random_seed: int | None = None,
+    ) -> Any:
+        if pm is None:
+            raise RuntimeError("PyMC is not installed in this environment.")
+
+        fit_kwargs: Dict[str, Any] = dict(self.fit_kwargs)
+        fit_kwargs.setdefault("method", self.method)
+        fit_kwargs.setdefault("progressbar", progressbar)
+        if random_seed is not None:
+            fit_kwargs.setdefault("random_seed", random_seed)
+
+        with model:
+            approx = pm.fit(n=self.fit_steps, **fit_kwargs)
+
+        # approx.sample returns an InferenceData; `chains`, `cores`, `tune` are not used.
+        return approx.sample(draws=draws, random_seed=random_seed)
+
+
+class PymcMAPStrategy(PymcNestedDeltaStrategy):
+    """Maximum a posteriori (MAP) point-estimate converted to an InferenceData."""
+
+    def __init__(
+        self,
+        *,
+        default_target_accept: float = 0.92,
+        use_student_t_level0: bool = False,
+        map_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(
+            default_target_accept=default_target_accept,
+            use_student_t_level0=use_student_t_level0,
+        )
+        self.map_kwargs = dict(map_kwargs or {})
+
+    def sample_posterior(
+        self,
+        model: Any,
+        *,
+        draws: int,
+        tune: int,
+        chains: int,
+        cores: int,
+        target_accept: float | None = None,
+        progressbar: bool = False,
+        random_seed: int | None = None,
+    ) -> Any:
+        if pm is None:
+            raise RuntimeError("PyMC is not installed in this environment.")
+        if az is None:  # pragma: no cover - depends on optional import
+            raise RuntimeError("ArviZ is required for MAP-based strategies.")
+
+        map_kwargs = dict(self.map_kwargs)
+        map_kwargs.setdefault("progressbar", progressbar)
+
+        with model:
+            map_estimate = pm.find_MAP(**map_kwargs)
+
+        coords: Dict[str, Any] = dict(model.coords)
+        coords.setdefault("chain", np.arange(1))
+        coords.setdefault("draw", np.arange(1))
+
+        posterior: Dict[str, np.ndarray] = {}
+        dims: Dict[str, tuple[str, ...]] = {}
+
+        for rv in model.free_RVs:
+            name = rv.name
+            if name not in map_estimate:
+                continue
+            value = np.asarray(map_estimate[name])
+            full_shape = (1, 1) + value.shape
+            posterior[name] = value.reshape(full_shape)
+            raw_dims = getattr(rv, "dims", ()) or ()
+            dims[name] = ("chain", "draw", *tuple(raw_dims))
+
+        if not posterior:
+            raise RuntimeError(
+                "MAP estimation did not return any free random variables."
+            )
+
+        return az.from_dict(posterior=posterior, coords=coords, dims=dims)
+
+
+def build_conversion_model_nested_deltas(
+    *,
+    y: np.ndarray,
+    naics_levels: np.ndarray,
+    zip_levels: np.ndarray,
+    naics_group_counts: Integers,
+    zip_group_counts: Integers,
+    target_accept: float = 0.92,
+    use_student_t_level0: bool = False,
+):
+    """Backward-compatible helper returning a PyMC model using the default strategy."""
+
+    strategy = PymcNestedDeltaStrategy(
+        default_target_accept=target_accept,
+        use_student_t_level0=use_student_t_level0,
+    )
+    return strategy.build_model(
+        y=y,
+        naics_levels=naics_levels,
+        zip_levels=zip_levels,
+        naics_group_counts=naics_group_counts,
+        zip_group_counts=zip_group_counts,
+    )

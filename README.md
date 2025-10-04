@@ -78,16 +78,17 @@ print(list(h_naics["maps"][0].items())[:3])  # sample label→index at level 0
 
 ### 2.2 `modeling`
 
+- **`modeling/strategies.py`**
+  - Defines the `ConversionModelStrategy` abstract base class used to plug different inference backends.
+  - Encourages a strategy pattern so CLI and downstream tooling depend on the interface rather than any single implementation.
 - **`modeling/pymc_nested.py`**
-  - The core PyMC model: intercept + NAICS base/deltas + ZIP base/deltas.
-  - Implements **non-centered parameterization** for all group-level effects.
-  - Includes **exponential depth shrinkage**: variance decays with level depth.
-  - Exposes `eta` and `p` as deterministics for downstream evaluation.
+  - Provides `PymcNestedDeltaStrategy`, the default PyMC-based implementation of the interface.
+  - Builds the nested-delta hierarchical model (intercept + NAICS/ZIP base & deltas) with non-centred parameterisation and exponential depth shrinkage.
+  - Offers additional concrete strategies such as `PymcADVIStrategy` (variational inference) and `PymcMAPStrategy` (fast MAP approximation) for experimentation, while still exposing `build_conversion_model_nested_deltas` for backward compatibility.
 - **`modeling/sampling.py`**
-  - Thin wrappers around `pm.sample`, `pm.sample_prior_predictive`, etc.
-  - Ensures consistent defaults (chains, draws, target_accept) and reproducible seeds.
+  - Thin wrappers around `pm.sample`, `pm.sample_prior_predictive`, etc., used by the PyMC strategy to ensure consistent defaults.
 
-**Implementation principle:** keep modeling logic clear and aligned with statistical goals, while delegating all validation and math to `core`.
+**Implementation principle:** keep modeling logic clear and aligned with statistical goals, while delegating validation/math to `core` and allowing strategy swaps for different inference engines.
 
 ---
 
@@ -143,6 +144,12 @@ print(list(h_naics["maps"][0].items())[:3])  # sample label→index at level 0
   - Load artifacts → score new dataset → write results.
 - **`cli/report.py`**
   - Run calibration and ranking reports → generate outputs for stakeholders.
+
+`cli/fit.py` accepts `--inference-strategy` so you can experiment with different backends:
+
+- `pymc_nuts` (default): Hamiltonian Monte Carlo / NUTS sampling.
+- `pymc_advi`: automatic variational inference; control optimisation with `--variational-steps`.
+- `pymc_map`: fast MAP optimisation; choose the optimiser via `--map-method` (e.g., `BFGS`, `Powell`).
 
 **Implementation principle:** scripts should orchestrate functions, not contain modeling logic. Keep them thin, using `core`, `modeling`, `scoring`, and `eval`.
 
@@ -488,23 +495,55 @@ naics_levels = h_naics["code_levels"]
 zip_levels   = h_zip["code_levels"]
 ```
 
-#### 4) Fit the PyMC model
+#### 4) Fit the PyMC model via the strategy interface
 ```python
-from hierarchical_naics_model.modeling.pymc_nested import build_conversion_model_nested_deltas
-model = build_conversion_model_nested_deltas(
+from hierarchical_naics_model.modeling.pymc_nested import (
+    PymcNestedDeltaStrategy,
+    PymcADVIStrategy,
+)
+
+# Default NUTS-based strategy
+strategy = PymcNestedDeltaStrategy(default_target_accept=0.9)
+model = strategy.build_model(
     y=y,
-    naics_levels=naics_levels, zip_levels=zip_levels,
-    naics_group_counts=h_naics["group_counts"], zip_group_counts=h_zip["group_counts"],
-    target_accept=0.9
+    naics_levels=naics_levels,
+    zip_levels=zip_levels,
+    naics_group_counts=h_naics["group_counts"],
+    zip_group_counts=h_zip["group_counts"],
+)
+
+# Alternative: variational inference for larger datasets
+vi_strategy = PymcADVIStrategy(default_target_accept=0.9, fit_steps=10_000)
+vi_model = vi_strategy.build_model(
+    y=y,
+    naics_levels=naics_levels,
+    zip_levels=zip_levels,
+    naics_group_counts=h_naics["group_counts"],
+    zip_group_counts=h_zip["group_counts"],
 )
 ```
 ### 4.3 Extract Effects and Score New Data
 
 #### 5) Sample from the posterior
 ```python
-import pymc as pm
-with model:
-    idata = pm.sample(draws=500, tune=500, chains=2, cores=1, target_accept=0.9, random_seed=42)
+idata = strategy.sample_posterior(
+    model,
+    draws=500,
+    tune=500,
+    chains=2,
+    cores=1,
+    target_accept=0.9,
+    random_seed=42,
+)
+
+vi_idata = vi_strategy.sample_posterior(
+    vi_model,
+    draws=500,
+    tune=0,
+    chains=1,
+    cores=1,
+    random_seed=42,
+)
 ```
 
 #### 5) Extract posterior mean effects

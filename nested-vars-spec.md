@@ -260,8 +260,36 @@ def build_conversion_model_nested_deltas(
     naics_group_counts: list[int],
     zip_group_counts: list[int],
     target_accept: float = 0.92,
-    use_student_t: bool = False,
+    use_student_t_level0: bool = False,
 ) -> pm.Model: ...
+
+
+class ConversionModelStrategy(Protocol):
+    def build_model(
+        self,
+        *,
+        y: np.ndarray,
+        naics_levels: np.ndarray,
+        zip_levels: np.ndarray,
+        naics_group_counts: list[int],
+        zip_group_counts: list[int],
+    ) -> Any: ...
+
+    def sample_posterior(
+        self,
+        model: Any,
+        *,
+        draws: int,
+        tune: int,
+        chains: int,
+        cores: int,
+        target_accept: float | None = None,
+        progressbar: bool = False,
+        random_seed: int | None = None,
+    ) -> Any: ...
+
+
+class PymcNestedDeltaStrategy(ConversionModelStrategy): ...
 ```
 
 #### scoring.py

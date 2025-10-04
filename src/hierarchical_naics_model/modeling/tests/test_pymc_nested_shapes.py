@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 from hierarchical_naics_model.modeling import pymc_nested as pymc_nested_module
 from hierarchical_naics_model.modeling.pymc_nested import (
+    PymcADVIStrategy,
+    PymcMAPStrategy,
     build_conversion_model_nested_deltas,
 )
 from hierarchical_naics_model.modeling.sampling import sample_prior_predictive
@@ -148,3 +150,96 @@ def test_student_t_branch(monkeypatch):
     assert "naics_base_offset" in called
     assert "zip_base_offset" in called
     assert "naics_base_offset" in model.named_vars
+
+
+def test_advi_strategy_calls_pm_fit(monkeypatch):
+    y, nlev, zlev, ngc, zgc = _toy_indices(N=10, J=2, M=2, seed=5)
+    strategy = PymcADVIStrategy(fit_steps=5)
+    model = strategy.build_model(
+        y=y,
+        naics_levels=nlev,
+        zip_levels=zlev,
+        naics_group_counts=ngc,
+        zip_group_counts=zgc,
+    )
+
+    sample_args: dict[str, object] = {}
+
+    class DummyApprox:
+        def sample(self, draws: int, random_seed: int | None = None):
+            sample_args.update({"draws": draws, "random_seed": random_seed})
+            return "idata"
+
+    dummy = DummyApprox()
+    fit_call_kwargs: dict[str, object] = {}
+
+    def fake_fit(*args, **kwargs):
+        fit_call_kwargs.update(kwargs)
+        return dummy
+
+    monkeypatch.setattr(pymc_nested_module.pm, "fit", fake_fit)
+
+    result = strategy.sample_posterior(
+        model,
+        draws=7,
+        tune=0,
+        chains=1,
+        cores=1,
+        progressbar=True,
+        random_seed=111,
+    )
+
+    assert fit_call_kwargs["progressbar"] is True
+    assert fit_call_kwargs["method"] == "advi"
+    assert sample_args == {"draws": 7, "random_seed": 111}
+    assert result == "idata"
+
+
+def test_map_strategy_converts_find_map(monkeypatch):
+    y, nlev, zlev, ngc, zgc = _toy_indices(N=6, J=2, M=2, seed=7)
+    strategy = PymcMAPStrategy(map_kwargs={"method": "Powell"})
+    model = strategy.build_model(
+        y=y,
+        naics_levels=nlev,
+        zip_levels=zlev,
+        naics_group_counts=ngc,
+        zip_group_counts=zgc,
+    )
+
+    map_estimate: dict[str, np.ndarray] = {}
+    with model:
+        for rv in model.free_RVs:
+            base_value = np.asarray(rv.eval())
+            map_estimate[rv.name] = np.zeros_like(base_value)
+
+    find_map_kwargs: dict[str, object] = {}
+
+    def fake_find_map(**kwargs):
+        find_map_kwargs.update(kwargs)
+        return map_estimate
+
+    monkeypatch.setattr(pymc_nested_module.pm, "find_MAP", fake_find_map)
+
+    captured = {}
+
+    class DummyArviz:
+        def from_dict(self, **kwargs):
+            captured.update(kwargs)
+            return "idata"
+
+    monkeypatch.setattr(pymc_nested_module, "az", DummyArviz())
+
+    result = strategy.sample_posterior(
+        model,
+        draws=3,
+        tune=0,
+        chains=1,
+        cores=1,
+        progressbar=False,
+    )
+
+    assert find_map_kwargs["method"] == "Powell"
+    assert "posterior" in captured
+    assert all(name in captured["posterior"] for name in map_estimate)
+    assert captured["posterior"]["beta0"].shape[0] == 1
+    assert result == "idata"

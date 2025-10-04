@@ -10,6 +10,7 @@ import hierarchical_naics_model.cli as cli_root
 from hierarchical_naics_model.cli import fit, report, score
 from hierarchical_naics_model.io.artifacts import load_artifacts, save_artifacts
 from hierarchical_naics_model.io.datasets import save_parquet
+from hierarchical_naics_model.modeling import pymc_nested as modeling_pymc_nested
 
 
 class DummyIdata:
@@ -69,10 +70,18 @@ def test_fit_cli_minimal(monkeypatch, tmp_path, posterior_stub):
             len(codes), cut_points, prefix_fill
         ),
     )
-    monkeypatch.setattr(
-        fit, "build_conversion_model_nested_deltas", lambda **_: object()
-    )
-    monkeypatch.setattr(fit, "sample_posterior", lambda *args, **kwargs: posterior_stub)
+
+    class DummyStrategy:
+        def __init__(self, **kwargs):
+            pass
+
+        def build_model(self, **kwargs):
+            return object()
+
+        def sample_posterior(self, *args, **kwargs):
+            return posterior_stub
+
+    monkeypatch.setattr(fit, "PymcNestedDeltaStrategy", DummyStrategy)
 
     artifacts_path = tmp_path / "artifacts.pkl"
     summary_path = tmp_path / "summary.json"
@@ -97,6 +106,104 @@ def test_fit_cli_minimal(monkeypatch, tmp_path, posterior_stub):
     loaded = load_artifacts(artifacts_path)
     assert loaded["meta"]["n_rows"] == 2
     assert summary_path.exists()
+
+
+def test_fit_cli_variational_strategy(monkeypatch, tmp_path, posterior_stub):
+    df = pl.LazyFrame(
+        {"is_written": [1, 0], "NAICS": ["52", "52"], "ZIP": ["12", "12"]}
+    )
+
+    monkeypatch.setattr(fit, "load_parquet", lambda _: df)
+    monkeypatch.setattr(
+        fit,
+        "build_hierarchical_indices",
+        lambda codes, cut_points, prefix_fill: _fake_indices(
+            len(codes), cut_points, prefix_fill
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    class DummyADVIStrategy:
+        def __init__(self, **kwargs):
+            captured["init"] = kwargs
+
+        def build_model(self, **kwargs):
+            captured["build_model"] = kwargs
+            return object()
+
+        def sample_posterior(self, *args, **kwargs):
+            captured["sample"] = kwargs
+            return posterior_stub
+
+    monkeypatch.setattr(modeling_pymc_nested, "PymcADVIStrategy", DummyADVIStrategy)
+
+    exit_code = fit.main(
+        [
+            "--train",
+            "train.parquet",
+            "--artifacts",
+            str(tmp_path / "artifacts.pkl"),
+            "--inference-strategy",
+            "pymc_advi",
+            "--variational-steps",
+            "123",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["init"]["fit_steps"] == 123
+    assert "build_model" in captured
+    assert "sample" in captured
+
+
+def test_fit_cli_map_strategy(monkeypatch, tmp_path, posterior_stub):
+    df = pl.LazyFrame(
+        {"is_written": [1, 0], "NAICS": ["52", "52"], "ZIP": ["12", "12"]}
+    )
+
+    monkeypatch.setattr(fit, "load_parquet", lambda _: df)
+    monkeypatch.setattr(
+        fit,
+        "build_hierarchical_indices",
+        lambda codes, cut_points, prefix_fill: _fake_indices(
+            len(codes), cut_points, prefix_fill
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    class DummyMAPStrategy:
+        def __init__(self, **kwargs):
+            captured["init"] = kwargs
+
+        def build_model(self, **kwargs):
+            captured["build_model"] = kwargs
+            return object()
+
+        def sample_posterior(self, *args, **kwargs):
+            captured["sample"] = kwargs
+            return posterior_stub
+
+    monkeypatch.setattr(modeling_pymc_nested, "PymcMAPStrategy", DummyMAPStrategy)
+
+    exit_code = fit.main(
+        [
+            "--train",
+            "train.parquet",
+            "--artifacts",
+            str(tmp_path / "artifacts.pkl"),
+            "--inference-strategy",
+            "pymc_map",
+            "--map-method",
+            "Powell",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["init"]["map_kwargs"]["method"] == "Powell"
+    assert "build_model" in captured
+    assert "sample" in captured
 
 
 def test_fit_cli_missing_required_column(monkeypatch, tmp_path):

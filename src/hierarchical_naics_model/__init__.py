@@ -6,7 +6,13 @@ considered internal and may change without notice.
 """
 
 from .core.hierarchy import build_hierarchical_indices, make_backoff_resolver
-from .modeling.pymc_nested import build_conversion_model_nested_deltas
+from .modeling.pymc_nested import (
+    build_conversion_model_nested_deltas,
+    PymcNestedDeltaStrategy,
+    PymcADVIStrategy,
+    PymcMAPStrategy,
+)
+from .modeling.strategies import ConversionModelStrategy
 from .scoring.extract import extract_effect_tables_nested
 from .scoring.predict import predict_proba_nested
 from .eval.calibration import calibration_report
@@ -25,6 +31,10 @@ __all__ = [
     "make_backoff_resolver",
     # modeling
     "build_conversion_model_nested_deltas",
+    "ConversionModelStrategy",
+    "PymcNestedDeltaStrategy",
+    "PymcADVIStrategy",
+    "PymcMAPStrategy",
     # scoring
     "extract_effect_tables_nested",
     "predict_proba_nested",
