@@ -151,6 +151,8 @@ print(list(h_naics["maps"][0].items())[:3])  # sample label→index at level 0
 - `pymc_advi`: automatic variational inference; control optimisation with `--variational-steps`.
 - `pymc_map`: fast MAP optimisation; choose the optimiser via `--map-method` (e.g., `BFGS`, `Powell`).
 
+Progress bars are now enabled by default; disable them with `--no-progressbar` if you prefer quiet runs.
+
 **Implementation principle:** scripts should orchestrate functions, not contain modeling logic. Keep them thin, using `core`, `modeling`, `scoring`, and `eval`.
 
 ---

@@ -33,7 +33,7 @@ class ConversionModelStrategy(ABC):
         chains: int,
         cores: int,
         target_accept: float | None = None,
-        progressbar: bool = False,
+        progressbar: bool = True,
         random_seed: int | None = None,
     ) -> Any:
         """Run inference for the supplied model and return posterior samples."""

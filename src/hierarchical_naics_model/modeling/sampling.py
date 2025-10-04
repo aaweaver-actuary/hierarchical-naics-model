@@ -9,7 +9,7 @@ except Exception:  # pragma: no cover
     pm = None  # type: ignore
 
 DEFAULT_SAMPLING: Dict[str, Any] = dict(
-    draws=1000, tune=1000, chains=2, cores=1, target_accept=0.92, progressbar=False
+    draws=1000, tune=1000, chains=2, cores=1, target_accept=0.92, progressbar=True
 )
 
 

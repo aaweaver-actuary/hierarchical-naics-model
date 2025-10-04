@@ -239,7 +239,7 @@ class PymcNestedDeltaStrategy(ConversionModelStrategy):
         chains: int,
         cores: int,
         target_accept: float | None = None,
-        progressbar: bool = False,
+        progressbar: bool = True,
         random_seed: int | None = None,
     ) -> Any:
         overrides = {
@@ -288,7 +288,7 @@ class PymcADVIStrategy(PymcNestedDeltaStrategy):
         chains: int,
         cores: int,
         target_accept: float | None = None,
-        progressbar: bool = False,
+        progressbar: bool = True,
         random_seed: int | None = None,
     ) -> Any:
         if pm is None:
@@ -332,7 +332,7 @@ class PymcMAPStrategy(PymcNestedDeltaStrategy):
         chains: int,
         cores: int,
         target_accept: float | None = None,
-        progressbar: bool = False,
+        progressbar: bool = True,
         random_seed: int | None = None,
     ) -> Any:
         if pm is None:

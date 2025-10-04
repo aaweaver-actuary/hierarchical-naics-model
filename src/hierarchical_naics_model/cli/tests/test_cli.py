@@ -72,6 +72,8 @@ def test_fit_cli_minimal(monkeypatch, tmp_path, posterior_stub):
     )
 
     class DummyStrategy:
+        kwargs: dict[str, object] = {}
+
         def __init__(self, **kwargs):
             pass
 
@@ -79,6 +81,7 @@ def test_fit_cli_minimal(monkeypatch, tmp_path, posterior_stub):
             return object()
 
         def sample_posterior(self, *args, **kwargs):
+            DummyStrategy.kwargs = kwargs
             return posterior_stub
 
     monkeypatch.setattr(fit, "PymcNestedDeltaStrategy", DummyStrategy)
@@ -106,6 +109,7 @@ def test_fit_cli_minimal(monkeypatch, tmp_path, posterior_stub):
     loaded = load_artifacts(artifacts_path)
     assert loaded["meta"]["n_rows"] == 2
     assert summary_path.exists()
+    assert DummyStrategy.kwargs["progressbar"] is True
 
 
 def test_fit_cli_variational_strategy(monkeypatch, tmp_path, posterior_stub):
@@ -154,7 +158,50 @@ def test_fit_cli_variational_strategy(monkeypatch, tmp_path, posterior_stub):
     assert exit_code == 0
     assert captured["init"]["fit_steps"] == 123
     assert "build_model" in captured
-    assert "sample" in captured
+    assert captured["sample"]["progressbar"] is True
+
+
+def test_fit_cli_no_progressbar(monkeypatch, tmp_path, posterior_stub):
+    df = pl.LazyFrame(
+        {"is_written": [1, 0], "NAICS": ["52", "52"], "ZIP": ["12", "12"]}
+    )
+
+    monkeypatch.setattr(fit, "load_parquet", lambda _: df)
+    monkeypatch.setattr(
+        fit,
+        "build_hierarchical_indices",
+        lambda codes, cut_points, prefix_fill: _fake_indices(
+            len(codes), cut_points, prefix_fill
+        ),
+    )
+
+    class DummyStrategy:
+        kwargs: dict[str, object] = {}
+
+        def __init__(self, **kwargs):
+            pass
+
+        def build_model(self, **kwargs):
+            return object()
+
+        def sample_posterior(self, *args, **kwargs):
+            DummyStrategy.kwargs = kwargs
+            return posterior_stub
+
+    monkeypatch.setattr(fit, "PymcNestedDeltaStrategy", DummyStrategy)
+
+    exit_code = fit.main(
+        [
+            "--train",
+            "train.parquet",
+            "--artifacts",
+            str(tmp_path / "artifacts.pkl"),
+            "--no-progressbar",
+        ]
+    )
+
+    assert exit_code == 0
+    assert DummyStrategy.kwargs["progressbar"] is False
 
 
 def test_fit_cli_map_strategy(monkeypatch, tmp_path, posterior_stub):
@@ -203,7 +250,7 @@ def test_fit_cli_map_strategy(monkeypatch, tmp_path, posterior_stub):
     assert exit_code == 0
     assert captured["init"]["map_kwargs"]["method"] == "Powell"
     assert "build_model" in captured
-    assert "sample" in captured
+    assert captured["sample"]["progressbar"] is True
 
 
 def test_fit_cli_missing_required_column(monkeypatch, tmp_path):

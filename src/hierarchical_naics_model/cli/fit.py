@@ -118,6 +118,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optimizer method for MAP when using --inference-strategy=pymc_map.",
     )
     parser.add_argument(
+        "--no-progressbar",
+        action="store_true",
+        help="Disable progress bars during inference.",
+    )
+    parser.add_argument(
         "--artifacts",
         required=True,
         help="Output file or directory for fitted artifacts.",
@@ -201,6 +206,8 @@ def main(argv: List[str] | None = None) -> int:
         zip_group_counts=zip_idx["group_counts"],
     )
 
+    show_progress = not args.no_progressbar
+
     idata = strategy.sample_posterior(
         model,
         draws=int(args.draws),
@@ -208,6 +215,7 @@ def main(argv: List[str] | None = None) -> int:
         chains=int(args.chains),
         cores=int(args.cores),
         target_accept=float(args.target_accept),
+        progressbar=show_progress,
     )
 
     effects = extract_effect_tables_nested(idata)
