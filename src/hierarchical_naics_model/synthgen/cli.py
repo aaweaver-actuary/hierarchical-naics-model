@@ -50,9 +50,7 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    import polars as pl
-
-    pl.from_pandas(df).write_parquet(args.out)
+    df.write_parquet(args.out)
     print(f"Synthetic data written to {args.out} with shape {df.shape}")
 
 

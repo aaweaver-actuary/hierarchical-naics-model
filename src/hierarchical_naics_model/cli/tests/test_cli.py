@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import numpy as np
-import pandas as pd
+import polars as pl
 import pytest
 import xarray as xr
 
@@ -57,7 +57,7 @@ def posterior_stub() -> DummyIdata:
 
 
 def test_fit_cli_minimal(monkeypatch, tmp_path, posterior_stub):
-    df = pd.DataFrame(
+    df = pl.LazyFrame(
         {"is_written": [1, 0], "NAICS": ["52", "52"], "ZIP": ["12", "12"]}
     )
 
@@ -100,7 +100,7 @@ def test_fit_cli_minimal(monkeypatch, tmp_path, posterior_stub):
 
 
 def test_fit_cli_missing_required_column(monkeypatch, tmp_path):
-    df = pd.DataFrame({"NAICS": ["52"], "ZIP": ["12"]})
+    df = pl.LazyFrame({"NAICS": ["52"], "ZIP": ["12"]})
     monkeypatch.setattr(fit, "load_parquet", lambda _: df)
 
     with pytest.raises(ValueError, match="missing required columns"):
@@ -136,9 +136,9 @@ def test_score_cli_roundtrip(tmp_path):
         "zip_maps": {"levels": ["L2"], "maps": [{"12": 0}], "cut_points": [2]},
         "effects": {
             "beta0": 0.0,
-            "naics_base": pd.Series([0.0]),
+            "naics_base": np.array([0.0], dtype=float),
             "naics_deltas": [],
-            "zip_base": pd.Series([0.0]),
+            "zip_base": np.array([0.0], dtype=float),
             "zip_deltas": [],
         },
         "meta": {
@@ -150,7 +150,7 @@ def test_score_cli_roundtrip(tmp_path):
     }
     save_artifacts(artifacts, artifacts_path)
 
-    df = pd.DataFrame({"NAICS": ["52"], "ZIP": ["12"], "is_written": [1]})
+    df = pl.LazyFrame({"NAICS": ["52"], "ZIP": ["12"], "is_written": [1]})
     input_path = tmp_path / "incoming.parquet"
     save_parquet(df, input_path)
     output_path = tmp_path / "scored.parquet"
@@ -170,7 +170,7 @@ def test_score_cli_roundtrip(tmp_path):
     )
 
     assert exit_code == 0
-    scored_df = pd.read_parquet(output_path)
+    scored_df = pl.read_parquet(output_path)
     assert {"eta", "p"}.issubset(scored_df.columns)
     assert summary_path.exists()
 
@@ -182,16 +182,16 @@ def test_score_cli_requires_metadata(tmp_path):
         "zip_maps": {"levels": ["L2"], "maps": [{"12": 0}], "cut_points": [2]},
         "effects": {
             "beta0": 0.0,
-            "naics_base": pd.Series([0.0]),
+            "naics_base": np.array([0.0], dtype=float),
             "naics_deltas": [],
-            "zip_base": pd.Series([0.0]),
+            "zip_base": np.array([0.0], dtype=float),
             "zip_deltas": [],
         },
         "meta": {},
     }
     save_artifacts(artifacts, artifacts_path)
 
-    df = pd.DataFrame({"NAICS": ["52"], "ZIP": ["12"], "is_written": [1]})
+    df = pl.LazyFrame({"NAICS": ["52"], "ZIP": ["12"], "is_written": [1]})
     input_path = tmp_path / "incoming.parquet"
     save_parquet(df, input_path)
 
@@ -215,16 +215,16 @@ def test_score_cli_with_overrides(tmp_path):
         "zip_maps": {"levels": ["L2"], "maps": [{"12": 0}], "cut_points": [2]},
         "effects": {
             "beta0": 0.0,
-            "naics_base": pd.Series([0.0]),
+            "naics_base": np.array([0.0], dtype=float),
             "naics_deltas": [],
-            "zip_base": pd.Series([0.0]),
+            "zip_base": np.array([0.0], dtype=float),
             "zip_deltas": [],
         },
         "meta": {},
     }
     save_artifacts(artifacts, artifacts_path)
 
-    df = pd.DataFrame(
+    df = pl.LazyFrame(
         {"NAICS_OVERRIDE": ["52"], "ZIP_OVERRIDE": ["12"], "is_written": [1]}
     )
     input_path = tmp_path / "incoming.parquet"
@@ -250,7 +250,7 @@ def test_score_cli_with_overrides(tmp_path):
     )
 
     assert exit_code == 0
-    assert pd.read_parquet(output_path).shape[0] == 1
+    assert pl.read_parquet(output_path).height == 1
 
 
 def test_report_cli_outputs(tmp_path):
@@ -260,9 +260,9 @@ def test_report_cli_outputs(tmp_path):
         "zip_maps": {"levels": ["L2"], "maps": [{"12": 0}], "cut_points": [2]},
         "effects": {
             "beta0": 0.0,
-            "naics_base": pd.Series([0.0]),
+            "naics_base": np.array([0.0], dtype=float),
             "naics_deltas": [],
-            "zip_base": pd.Series([0.0]),
+            "zip_base": np.array([0.0], dtype=float),
             "zip_deltas": [],
         },
         "meta": {
@@ -274,7 +274,7 @@ def test_report_cli_outputs(tmp_path):
     }
     save_artifacts(artifacts, artifacts_path)
 
-    scored = pd.DataFrame({"is_written": [1, 0, 1], "p": [0.9, 0.2, 0.6]})
+    scored = pl.LazyFrame({"is_written": [1, 0, 1], "p": [0.9, 0.2, 0.6]})
     scored_path = tmp_path / "scored.parquet"
     save_parquet(scored, scored_path)
 
@@ -305,7 +305,7 @@ def test_report_cli_outputs(tmp_path):
 
 
 def test_report_cli_requires_target_column(tmp_path):
-    scored = pd.DataFrame({"p": [0.1]})
+    scored = pl.LazyFrame({"p": [0.1]})
     scored_path = tmp_path / "scored.parquet"
     save_parquet(scored, scored_path)
 
@@ -323,7 +323,7 @@ def test_report_cli_requires_target_column(tmp_path):
 
 
 def test_report_cli_target_override(tmp_path):
-    scored = pd.DataFrame({"is_written": [1], "prob": [0.8]})
+    scored = pl.LazyFrame({"is_written": [1], "prob": [0.8]})
     scored_path = tmp_path / "scored.parquet"
     save_parquet(scored, scored_path)
 
@@ -347,7 +347,7 @@ def test_report_cli_target_override(tmp_path):
 
 
 def test_report_cli_probability_column_required(tmp_path):
-    scored = pd.DataFrame({"is_written": [1]})
+    scored = pl.LazyFrame({"is_written": [1]})
     scored_path = tmp_path / "scored.parquet"
     save_parquet(scored, scored_path)
 

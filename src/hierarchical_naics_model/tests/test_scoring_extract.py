@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 from hierarchical_naics_model.scoring.extract import extract_effect_tables_nested
 
@@ -48,12 +47,12 @@ def test_extract_effect_tables_nested_keys_are_correct(extracted_effects):
     assert set(extracted_effects.keys()) == expected_keys
 
 
-def test_extract_effect_tables_nested_naics_base_is_series(extracted_effects):
-    assert isinstance(extracted_effects["naics_base"], pd.Series)
+def test_extract_effect_tables_nested_naics_base_is_array(extracted_effects):
+    assert isinstance(extracted_effects["naics_base"], np.ndarray)
 
 
-def test_extract_effect_tables_nested_zip_base_is_series(extracted_effects):
-    assert isinstance(extracted_effects["zip_base"], pd.Series)
+def test_extract_effect_tables_nested_zip_base_is_array(extracted_effects):
+    assert isinstance(extracted_effects["zip_base"], np.ndarray)
 
 
 def test_extract_effect_tables_nested_naics_deltas_is_list_of_length_1(
@@ -77,15 +76,11 @@ def test_extract_effect_tables_nested_beta0_mean_is_correct(extracted_effects):
 
 
 def test_extract_effect_tables_nested_naics_base_mean_is_correct(extracted_effects):
-    np.testing.assert_allclose(
-        extracted_effects["naics_base"].values, np.array([0.1, 0.3])
-    )
+    np.testing.assert_allclose(extracted_effects["naics_base"], np.array([0.1, 0.3]))
 
 
 def test_extract_effect_tables_nested_zip_base_mean_is_correct(extracted_effects):
-    np.testing.assert_allclose(
-        extracted_effects["zip_base"].values, np.array([0.6, 0.8, 1.0])
-    )
+    np.testing.assert_allclose(extracted_effects["zip_base"], np.array([0.6, 0.8, 1.0]))
 
 
 @pytest.mark.parametrize(
@@ -139,7 +134,7 @@ def test_extract_effect_tables_nested_naics_base_parametrized(naics_base, expect
             extract_effect_tables_nested(idata)
     else:
         eff = extract_effect_tables_nested(idata)
-        np.testing.assert_allclose(eff["naics_base"].values, expected)
+        np.testing.assert_allclose(eff["naics_base"], expected)
 
 
 def test_extract_effect_tables_nested_requires_posterior_group():

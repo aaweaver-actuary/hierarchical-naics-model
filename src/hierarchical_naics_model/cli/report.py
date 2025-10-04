@@ -5,8 +5,7 @@ import json
 from pathlib import Path
 from typing import Iterable, List, Optional, cast
 
-import numpy as np
-import pandas as pd
+import polars as pl
 
 from ..eval.calibration import calibration_report
 from ..eval.ranking import ranking_report
@@ -71,20 +70,22 @@ def main(argv: List[str] | None = None) -> int:
             "Target column not specified. Provide --target-col or supply --artifacts with metadata."
         )
 
-    df = load_parquet(args.scored)
-    if target_col not in df.columns:
+    lf = load_parquet(args.scored)
+    available_columns = set(lf.collect_schema().names())
+    if target_col not in available_columns:
         raise ValueError(f"Target column '{target_col}' not found in scored data.")
-    if args.prob_col not in df.columns:
+    if args.prob_col not in available_columns:
         raise ValueError(
             f"Probability column '{args.prob_col}' not found in scored data."
         )
 
-    y = df[target_col].to_numpy()
-    p = df[args.prob_col].to_numpy()
+    df = lf.select([pl.col(target_col), pl.col(args.prob_col)]).collect()
+    y_series = df[target_col]
+    p_series = df[args.prob_col]
 
-    cal = calibration_report(y, p, bins=10)
+    cal = calibration_report(y_series, p_series, bins=10)
     ks: Iterable[int] = tuple(args.ks) if args.ks else (5, 10, 20, 30)
-    rank = ranking_report(y, p, ks=ks)
+    rank = ranking_report(y_series, p_series, ks=ks)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -92,18 +93,18 @@ def main(argv: List[str] | None = None) -> int:
     reliability_obj = cal["reliability"]
     ranking_obj = rank["summary"]
 
-    if not isinstance(reliability_obj, pd.DataFrame):  # pragma: no cover - defensive
+    if not isinstance(reliability_obj, pl.DataFrame):  # pragma: no cover - defensive
         raise TypeError("Calibration report did not produce a DataFrame.")
-    if not isinstance(ranking_obj, pd.DataFrame):  # pragma: no cover - defensive
+    if not isinstance(ranking_obj, pl.DataFrame):  # pragma: no cover - defensive
         raise TypeError("Ranking report did not produce a DataFrame.")
 
-    reliability_obj.to_csv(out_dir / "calibration_reliability.csv", index=False)
-    ranking_obj.to_csv(out_dir / "ranking_summary.csv", index=False)
+    reliability_obj.write_csv(out_dir / "calibration_reliability.csv")
+    ranking_obj.write_csv(out_dir / "ranking_summary.csv")
 
     metrics = {
         "scored_path": str(Path(args.scored).resolve()),
-        "rows": int(len(df)),
-        "positives": int(np.asarray(y).sum()),
+        "rows": int(df.height),
+        "positives": int(df[target_col].sum()),
         "target_col": target_col,
         "prob_col": args.prob_col,
         "ece": cal["ece"],

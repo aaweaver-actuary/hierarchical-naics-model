@@ -1,6 +1,7 @@
+import numpy as np
+
 from ..core.validation import validate_level_indices
 from ..types import Integers
-import numpy as np
 
 
 def check_inputs(

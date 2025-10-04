@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Callable, Dict, List, Mapping, Sequence, TypedDict
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 
 __all__ = ["HierIndex", "build_hierarchical_indices", "make_backoff_resolver"]
@@ -37,48 +37,59 @@ def _validate_cut_points(cut_points: Sequence[int]) -> List[int]:
     return cp
 
 
-def _to_str_series(codes: Sequence[str]) -> pd.Series:
-    s = pd.Series(codes, dtype="string")
-    s = s.fillna("").str.strip()
-    # Ensure only digits remain? We don't hard-enforce here; padding/slicing is robust.
-    return s
+def _right_pad(expr: pl.Expr, *, width: int, fill: str) -> pl.Expr:
+    """Pad strings in `expr` to `width` characters using ``fill`` on the right.
 
+    The implementation keeps everything as a Polars expression so it composes inside
+    lazy pipelines. Values are first coerced to UTF-8 strings with whitespace stripped
+    (consistent with the legacy pandas flow). Padding is implemented by concatenating
+    a long fill string and slicing to the desired width, which avoids Python callbacks
+    such as ``map_elements`` while remaining stable for strings that are already longer
+    than ``width``.
+    """
 
-def _right_pad(s: pd.Series, width: int, fill: str) -> pd.Series:
-    if not isinstance(fill, str) or len(fill) != 1:
-        raise ValueError("prefix_fill must be a single character string, e.g., '0'.")
     if width <= 0:
         raise ValueError("Padding width must be positive.")
-    # right pad to width using fill; if longer than width, keep as-is (do not truncate)
-    return s.where(
-        s.str.len() >= width, s.str.pad(width=width, side="right", fillchar=fill)
-    )
+    if not isinstance(fill, str) or len(fill) != 1:
+        raise ValueError("prefix_fill must be a single character string, e.g., '0'.")
+
+    fill_block = pl.lit(fill * width)
+    cleaned = expr.cast(pl.Utf8).fill_null("").str.strip_chars()
+    return (cleaned + fill_block).str.slice(0, width)
 
 
-def _slice_levels(s: pd.Series, cut_points: Sequence[int]) -> List[pd.Series]:
-    return [s.str.slice(0, c) for c in cut_points]
+def _slice_levels(expr: pl.Expr, cut_points: Sequence[int]) -> List[pl.Expr]:
+    return [expr.str.slice(0, c).alias(f"L{c}") for c in cut_points]
 
 
 def _factorize_stable(
-    labels: pd.Series,
+    df: pl.DataFrame,
+    column: str,
 ) -> tuple[np.ndarray, np.ndarray, Dict[str, int]]:
-    """
-    Factorize preserving first-seen order of unique labels.
+    """Return row codes, ordered uniques, and a mapping for ``column``.
 
-    Returns
-    -------
-    codes : np.ndarray[int64]
-        Per-row indices 0..K-1.
-    uniques : np.ndarray[object]
-        Unique labels in index order.
-    mapping : dict[str, int]
-        Label -> index.
+    Polars does not expose a ``factorize`` helper with guaranteed first-occurrence
+    ordering, so we emulate it by computing ``unique(maintain_order=True)`` and joining
+    the resulting index back onto the original column. Everything stays inside the
+    Polars query engine until the very end where we realise numpy arrays for the model
+    layer.
     """
-    uniq = pd.Index(labels).unique()
-    cat = pd.Categorical(labels, categories=uniq, ordered=False)
-    codes = cat.codes.astype(np.int64, copy=False)
-    uniques = np.asarray(uniq.to_numpy(), dtype="object")
-    mapping: Dict[str, int] = {str(uniques[i]): int(i) for i in range(len(uniques))}
+
+    if column not in df.columns:
+        raise KeyError(f"Column '{column}' not found in DataFrame.")
+
+    unique_df = (
+        df.select(pl.col(column)).unique(maintain_order=True).with_row_index("idx")
+    )
+
+    codes_df = df.select(pl.col(column)).join(unique_df, on=column, how="left")
+
+    codes = codes_df["idx"].to_numpy().astype(np.int64, copy=False)
+    uniques = unique_df[column].to_numpy(allow_copy=True)
+    mapping = {
+        str(label): int(idx)
+        for label, idx in zip(unique_df[column].to_list(), unique_df["idx"].to_list())
+    }
     return codes, uniques, mapping
 
 
@@ -117,7 +128,7 @@ def build_hierarchical_indices(
     ----------
     codes
         Raw code strings (may be short or contain whitespace). Values are coerced to
-        pandas "string" dtype; missing values become empty strings.
+        UTF-8 strings via Polars; missing values become empty strings.
     cut_points
         Strictly increasing prefix lengths defining levels (e.g., [2, 3, 4, 5, 6]).
         The first element defines the most general level (L0), and the last typically
@@ -156,34 +167,37 @@ def build_hierarchical_indices(
     1
     """
     cp = _validate_cut_points(cut_points)
+    if not isinstance(prefix_fill, str) or len(prefix_fill) != 1:
+        raise ValueError("prefix_fill must be a single character string, e.g., '0'.")
+
     max_len = max(cp)
+    codes_list = list(codes)
 
-    s = _to_str_series(codes)
-    s = _right_pad(s, width=max_len, fill=prefix_fill)
+    # Build a lazy pipeline so downstream callers can inspect plan nodes if desired.
+    df_codes = pl.DataFrame({"code": codes_list})
+    padded_expr = _right_pad(pl.col("code"), width=max_len, fill=prefix_fill)
+    level_exprs = _slice_levels(padded_expr, cp)
 
-    # Slice to level labels
-    label_cols = _slice_levels(s, cp)  # list of Series, length L
-    levels_names = [f"L{c}" for c in cp]
+    levels_df = df_codes.lazy().select(level_exprs).collect()
+    levels_names = levels_df.columns
 
-    # Factorize each level independently
+    # Factorize each level independently while maintaining first-seen order
     code_cols: List[np.ndarray] = []
     unique_per_level: List[np.ndarray] = []
     maps: List[Mapping[str, int]] = []
     group_counts: List[int] = []
 
-    for lab_s in label_cols:
-        codes_j, uniq_j, map_j = _factorize_stable(lab_s)
+    for col_name in levels_names:
+        codes_j, uniq_j, map_j = _factorize_stable(levels_df, col_name)
         code_cols.append(codes_j)
         unique_per_level.append(uniq_j)
         maps.append(map_j)
         group_counts.append(int(len(uniq_j)))
 
-    # Stack per-level codes into (N, L)
-    code_levels = (
-        np.column_stack(code_cols)
-        if code_cols
-        else np.empty((len(s), 0), dtype=np.int64)
-    )
+    if code_cols:
+        code_levels = np.column_stack(code_cols)
+    else:
+        code_levels = np.empty((levels_df.height, 0), dtype=np.int64)
 
     # Build parent pointers for group uniques (not row-level)
     parent_index_per_level: List[np.ndarray | None] = [None]

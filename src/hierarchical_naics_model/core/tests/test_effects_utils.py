@@ -1,5 +1,5 @@
-import pytest
 import numpy as np
+import pytest
 from hierarchical_naics_model.core.effects import _ensure_vector, _check_effects_list
 
 

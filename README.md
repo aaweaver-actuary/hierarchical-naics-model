@@ -50,25 +50,27 @@ The codebase is organized for **clarity**, **testability**, and **production rea
 
 ```python
 # Minimal example: build hierarchical indices for NAICS & ZIP
-import pandas as pd
+import polars as pl
 from hierarchical_naics_model.core.hierarchy import build_hierarchical_indices
 
-df = pd.DataFrame({
-    "NAICS": ["311000","311100","522120","521110"],
-    "ZIP":   ["45242","30301","10001","60601"],
+df = pl.DataFrame({
+    "NAICS": ["311000", "311100", "522120", "521110"],
+    "ZIP":   ["45242", "30301", "10001", "60601"],
 })
 
-naics_cuts = [2,3,6]
-zip_cuts   = [2,3,5]
-h_naics = build_hierarchical_indices(df["NAICS"], naics_cuts, prefix_fill="0")
-h_zip   = build_hierarchical_indices(df["ZIP"],   zip_cuts,   prefix_fill="0")
+naics_cuts = [2, 3, 6]
+zip_cuts = [2, 3, 5]
+naics_codes = df["NAICS"].to_list()
+zip_codes = df["ZIP"].to_list()
+h_naics = build_hierarchical_indices(naics_codes, cut_points=naics_cuts, prefix_fill="0")
+h_zip = build_hierarchical_indices(zip_codes, cut_points=zip_cuts, prefix_fill="0")
 
 # Shapes & keys
 print(h_naics["code_levels"].shape)  # (N, len(naics_cuts))
 print(h_naics["group_counts"])       # groups per NAICS level
 print(list(h_naics["maps"][0].items())[:3])  # sample label→index at level 0
 
-# 'code_levels' holds per-row, per-level integer indices into level-specific effect vectors
+# 'code_levels' holds per-row, per-level integer indices into level-specific effect vectors.
 # Use these with base & delta vectors to compute eta.
 ```
 
@@ -93,12 +95,12 @@ print(list(h_naics["maps"][0].items())[:3])  # sample label→index at level 0
 
 - **`scoring/extract.py`**
   - Extracts posterior means of all group-level effects from `idata.posterior`.
-  - Returns a structured dictionary:
+  - Returns numerical arrays ready for deterministic scoring:
     - `beta0: float`
-    - `naics_base: pd.Series`
-    - `naics_deltas: list[pd.Series]`
-    - `zip_base: pd.Series`
-    - `zip_deltas: list[pd.Series]`
+    - `naics_base: np.ndarray`
+    - `naics_deltas: list[np.ndarray]`
+    - `zip_base: np.ndarray`
+    - `zip_deltas: list[np.ndarray]`
 - **`scoring/predict.py`**
   - Uses the extracted effect tables and training-time maps to compute probabilities on new data.
   - Enforces **strict per-level backoff**: a delta only applies if the exact label exists; otherwise it contributes 0.
@@ -117,7 +119,7 @@ print(list(h_naics["maps"][0].items())[:3])  # sample label→index at level 0
 - **`eval/temporal.py`**
   - (Optional) Provides time-based train/validation splits and drift monitoring.
 
-**Implementation principle:** lightweight, NumPy/Pandas only, enabling fast iteration and reproducibility.
+**Implementation principle:** lightweight, Polars + NumPy only, enabling fast iteration and reproducibility.
 
 ---
 
@@ -236,7 +238,7 @@ We define $K^{(H)}_j$ as the number of unique labels at level $j$ of hierarchy $
 
 ```python
 # Pure NumPy illustration: assemble eta from indices + effect vectors (no PyMC)
-import numpy as np
+# import numpy as np
 
 # Suppose you have:
 # - indices: naics_levels (N, L_n), zip_levels (N, L_z)
@@ -298,7 +300,7 @@ This approach ensures that the model is anchored at a data-informed baseline, an
 
 ```python
 # PyMC: Intercept = offset(logit(r_hat)) + weak residual
-import numpy as np
+# import numpy as np
 import pymc as pm
 from pymc import math as pmmath
 
@@ -374,7 +376,7 @@ where $\sigma(\cdot)$ is the logistic sigmoid.
 
 ```python
 # Strict per-level backoff: apply a delta only if that exact label exists
-import numpy as np
+# import numpy as np
 
 def score_row(naics_code, zip_code, naics_cuts, zip_cuts, naics_maps, zip_maps, effects, prefix_fill="0"):
     def pad(code, L):
@@ -442,7 +444,7 @@ This section gives a minimal, step-by-step guide for going from **raw data** to 
 Ensure you have Python 3.10+ and the required packages:
 
 ```bash
-pip install pymc arviz numpy pandas xarray
+pip install pymc arviz numpy polars pyarrow xarray
 pip install -e .   # install this project in editable mode if using pyproject/poetry
 ```
 For testing and reproducibility:
@@ -455,10 +457,10 @@ pip install pytest pytest-cov
 
 #### 1) Example dataset
 ```python
-import pandas as pd
 import numpy as np
+import polars as pl
 
-df = pd.DataFrame({
+df = pl.DataFrame({
     "is_written": [0,1,0,1,1,0,0,1,0,1],
     "NAICS": ["521110","522120","311000","521110","311100","522200","311200","521110","522120","311000"],
     "ZIP":   ["45242","45209","10001","45219","30301","60601","94107","45242","45209","10001"],
@@ -475,10 +477,13 @@ prefix_fill = "0"
 #### 3) Build hierarchical indices
 ```python
 from hierarchical_naics_model.core.hierarchy import build_hierarchical_indices
-h_naics = build_hierarchical_indices(df["NAICS"], naics_cuts, prefix_fill=prefix_fill)
-h_zip   = build_hierarchical_indices(df["ZIP"],   zip_cuts,   prefix_fill=prefix_fill)
 
-y = df["is_written"].to_numpy(dtype=np.int8)
+naics_codes = df["NAICS"].to_list()
+zip_codes = df["ZIP"].to_list()
+h_naics = build_hierarchical_indices(naics_codes, cut_points=naics_cuts, prefix_fill=prefix_fill)
+h_zip = build_hierarchical_indices(zip_codes, cut_points=zip_cuts, prefix_fill=prefix_fill)
+
+y = df["is_written"].to_numpy()
 naics_levels = h_naics["code_levels"]
 zip_levels   = h_zip["code_levels"]
 ```
@@ -653,25 +658,29 @@ Once in production:
 - Alert if backoff rates or calibration drift beyond thresholds.
 
 ```python
-# Example: monitor backoff rate & calibration over time
-import pandas as pd
+# Example: monitor backoff rate & calibration over time using Polars
+import polars as pl
 from hierarchical_naics_model.eval.calibration import calibration_report
 
-# 'scored' contains columns: p, any_backoff, y_true, date
+# 'scored' is a polars DataFrame with columns: p, any_backoff, y_true, date
 daily = (
     scored
-    .groupby(pd.to_datetime(scored["date"]).dt.to_period("D"))
-    .apply(lambda g: pd.Series({
-        "backoff_rate": g["any_backoff"].mean(),
-        "n": len(g),
-        "ece": calibration_report(g["y_true"].to_numpy(), g["p"].to_numpy(), bins=10)["ece"],
-    }))
-    .reset_index()
-    .rename(columns={"date": "day"})
+    .with_columns(pl.col("date").strptime(pl.Date))
+    .group_by("date")
+    .map_groups(
+        lambda group: pl.DataFrame(
+            {
+                "backoff_rate": [group["any_backoff"].mean()],
+                "n": [group.height],
+                "ece": [calibration_report(group["y_true"], group["p"], bins=10)["ece"]],
+            }
+        )
+    )
+    .sort("date")
 )
 
 print(daily.tail())
-# Alert if backoff_rate spikes or ece exceeds threshold.
+# Alert if backoff_rate spikes or ECE exceeds threshold.
 ```
 ---
 

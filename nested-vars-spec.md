@@ -281,7 +281,7 @@ def make_backoff_resolver(
 
 ```python
 def predict_proba_nested(
-    df_new: pd.DataFrame,
+    df_new: pl.DataFrame | pl.LazyFrame,
     *,
     naics_col: str,
     zip_col: str,
@@ -292,7 +292,7 @@ def predict_proba_nested(
     effects: dict,
     prefix_fill: str = "0",
     return_components: bool = True,
-) -> pd.DataFrame: ...
+) -> pl.DataFrame: ...
 ```
 
 #### evaluation.py

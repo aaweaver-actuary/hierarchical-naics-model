@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import numpy as np
+import polars as pl
+import pytest
 
 from hierarchical_naics_model.eval.calibration import calibration_report
-import pandas as pd
-import pytest
 
 
 @pytest.fixture
@@ -93,6 +93,6 @@ def test_calibration_report_validates_shapes():
 def test_calibration_report_handles_empty_input():
     rep = calibration_report(np.array([], dtype=int), np.array([], dtype=float), bins=3)
     reliability = rep["reliability"]
-    assert isinstance(reliability, pd.DataFrame)
-    assert reliability.empty
+    assert isinstance(reliability, pl.DataFrame)
+    assert reliability.is_empty()
     assert np.isnan(rep["ece"]) and np.isnan(rep["brier"])

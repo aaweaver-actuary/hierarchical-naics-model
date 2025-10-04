@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pickle
 
-import pandas as pd
+import numpy as np
 import pytest
 
 from hierarchical_naics_model.io.artifacts import (
@@ -16,9 +16,9 @@ from hierarchical_naics_model.io.artifacts import (
 def _sample_artifacts() -> Artifacts:
     effects = {
         "beta0": 0.0,
-        "naics_base": pd.Series([0.0]),
+        "naics_base": np.array([0.0], dtype=float),
         "naics_deltas": [],
-        "zip_base": pd.Series([0.0]),
+        "zip_base": np.array([0.0], dtype=float),
         "zip_deltas": [],
     }
     naics_maps: LevelMaps = {

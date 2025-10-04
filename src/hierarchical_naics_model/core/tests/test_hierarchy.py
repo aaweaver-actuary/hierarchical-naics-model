@@ -5,7 +5,7 @@ import itertools
 from typing import List, Mapping
 
 import numpy as np
-import pandas as pd
+import polars as pl
 import pytest
 
 # import the module under test
@@ -70,9 +70,8 @@ def test_build_hierarchical_indices_invalid_prefix_fill_raises(fill):
 
 
 def test_right_pad_requires_positive_width(toy_codes_mixed):
-    series = pd.Series(toy_codes_mixed, dtype="string")
     with pytest.raises(ValueError):
-        _right_pad(series, width=0, fill="0")
+        _right_pad(pl.col("code"), width=0, fill="0")
 
 
 # -------------------------

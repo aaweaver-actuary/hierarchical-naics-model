@@ -1,7 +1,8 @@
 """Series of mathematical functions used in the modeling code. Platform-agnostic wrappers for PyMC and NumPy."""
 
-from typing import Union, Optional
+from typing import Optional, Union
 from types import ModuleType
+
 import numpy as np
 
 try:

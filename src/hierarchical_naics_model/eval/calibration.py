@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from typing import Dict
 
-import numpy as np
-import pandas as pd
+import polars as pl
 
 
 __all__ = ["calibration_report"]
 
 
 def calibration_report(
-    y_true: np.ndarray,
-    p_hat: np.ndarray,
+    y_true,
+    p_hat,
     *,
     bins: int = 10,
 ) -> Dict[str, object]:
@@ -40,57 +39,94 @@ def calibration_report(
     dict
         {"reliability": DataFrame, "ece": float, "brier": float, "log_loss": float}
     """
-    y = np.asarray(y_true).astype(float)
-    p = np.asarray(p_hat).astype(float)
+    if bins <= 0:
+        raise ValueError("bins must be a positive integer")
 
-    if y.ndim != 1 or p.ndim != 1 or y.shape[0] != p.shape[0]:
-        raise ValueError("y_true and p_hat must be 1-D arrays of the same length.")
+    y = pl.Series("y", y_true)
+    p = pl.Series("p", p_hat)
 
-    N = y.size
-    if N == 0:
-        empty = pd.DataFrame(
-            columns=["bin_low", "bin_high", "n", "mean_p", "mean_y", "gap"]
+    if y.dtype.base_type() == pl.List or p.dtype.base_type() == pl.List:
+        raise ValueError("y_true and p_hat must be 1-D sequences.")
+
+    if y.len() != p.len():
+        raise ValueError("y_true and p_hat must be the same length.")
+
+    if y.len() == 0:
+        empty = pl.DataFrame(
+            {
+                "bin_low": [],
+                "bin_high": [],
+                "n": [],
+                "mean_p": [],
+                "mean_y": [],
+                "gap": [],
+            }
         )
         return {
             "reliability": empty,
-            "ece": np.nan,
-            "brier": np.nan,
-            "log_loss": np.nan,
+            "ece": float("nan"),
+            "brier": float("nan"),
+            "log_loss": float("nan"),
         }
 
-    # Stability for log-loss
+    df = pl.DataFrame({"y": y.cast(pl.Float64), "p": p.cast(pl.Float64)})
     eps = 1e-15
-    p_clip = np.clip(p, eps, 1 - eps)
-
-    edges = np.linspace(0.0, 1.0, bins + 1)
-    # Right-inclusive last bin
-    bin_idx = np.searchsorted(edges, p_clip, side="right") - 1
-    bin_idx = np.clip(bin_idx, 0, bins - 1)
-
-    rows = []
-    ece = 0.0
-    for b in range(bins):
-        mask = bin_idx == b
-        n_b = int(mask.sum())
-        low, high = edges[b], edges[b + 1]
-        if n_b == 0:
-            mean_p = mean_y = gap = 0.0
-        else:
-            mean_p = float(p_clip[mask].mean())
-            mean_y = float(y[mask].mean())
-            gap = mean_p - mean_y
-            ece += (n_b / N) * abs(gap)
-        rows.append((low, high, n_b, mean_p, mean_y, gap))
-
-    reliability = pd.DataFrame(
-        rows, columns=["bin_low", "bin_high", "n", "mean_p", "mean_y", "gap"]
+    bins_float = float(bins)
+    df = df.with_columns(pl.col("p").clip(eps, 1.0 - eps).alias("p_clip"))
+    df = df.with_columns(
+        ((pl.col("p_clip") * bins_float).floor().clip(None, bins - 1))
+        .cast(pl.Int64)
+        .alias("bin")
     )
-    brier = float(((p - y) ** 2).mean())
-    log_loss = float(-(y * np.log(p_clip) + (1 - y) * np.log(1 - p_clip)).mean())
+
+    agg = df.group_by("bin").agg(
+        pl.len().alias("n"),
+        pl.col("p_clip").mean().alias("mean_p"),
+        pl.col("y").mean().alias("mean_y"),
+    )
+
+    base = pl.DataFrame(
+        {
+            "bin": list(range(bins)),
+            "bin_low": [i / bins_float for i in range(bins)],
+            "bin_high": [(i + 1) / bins_float for i in range(bins)],
+        }
+    )
+
+    summary = (
+        base.join(agg, on="bin", how="left")
+        .with_columns(
+            pl.col("n").fill_null(0).cast(pl.Int64),
+            pl.col("mean_p").fill_null(0.0),
+            pl.col("mean_y").fill_null(0.0),
+        )
+        .with_columns((pl.col("mean_p") - pl.col("mean_y")).alias("gap"))
+    )
+
+    N = float(df.height)
+    ece = summary.select(
+        ((pl.col("n").cast(pl.Float64) / N) * pl.col("gap").abs()).sum().alias("ece")
+    ).item()
+
+    brier = df.select(((pl.col("p") - pl.col("y")) ** 2).mean().alias("brier")).item()
+    log_loss = df.select(
+        (
+            -(
+                pl.col("y") * pl.col("p_clip").log()
+                + (1.0 - pl.col("y")) * (1.0 - pl.col("p_clip")).log()
+            )
+        )
+        .mean()
+        .alias("log_loss")
+    ).item()
+
+    reliability = summary.select(
+        ["bin_low", "bin_high", "n", "mean_p", "mean_y", "gap"]
+    )
 
     return {
         "reliability": reliability,
         "ece": float(ece),
-        "brier": brier,
-        "log_loss": log_loss,
+        "brier": float(brier),
+        "log_loss": float(log_loss),
     }

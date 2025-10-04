@@ -3,8 +3,8 @@
 from types import SimpleNamespace
 from typing import Any, Callable, cast
 
-import importlib
 import builtins
+import importlib
 
 import numpy as np
 import pytest

@@ -4,7 +4,7 @@ from pathlib import Path
 import pickle
 from typing import Dict, List, TypedDict
 
-import pandas as pd
+import numpy as np
 
 
 class LevelMaps(TypedDict):
@@ -19,10 +19,10 @@ class EffectsTables(TypedDict):
     """Posterior mean effects for nested-deltas scoring."""
 
     beta0: float
-    naics_base: pd.Series
-    naics_deltas: List[pd.Series]
-    zip_base: pd.Series
-    zip_deltas: List[pd.Series]
+    naics_base: np.ndarray
+    naics_deltas: List[np.ndarray]
+    zip_base: np.ndarray
+    zip_deltas: List[np.ndarray]
 
 
 class Artifacts(TypedDict):
@@ -38,7 +38,7 @@ def save_artifacts(art: Artifacts, path: str) -> None:
     """Serialize the artifacts bundle with pickle.
 
     The representation is intentionally simple: a single pickle file containing
-    primitive Python containers and pandas objects. For a production system we
+    primitive Python containers and NumPy arrays. For a production system we
     would likely switch to a more structured format (Parquet/JSON), but this is
     sufficient for a proof of concept and keeps the code path compact.
     """

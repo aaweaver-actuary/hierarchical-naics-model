@@ -120,14 +120,18 @@ def main(argv: List[str] | None = None) -> int:
     naics_cuts = _parse_cut_points(args.naics_cuts, [2, 3, 6])
     zip_cuts = _parse_cut_points(args.zip_cuts, [2, 3, 5])
 
-    df = load_parquet(args.train)
+    df_lf = load_parquet(args.train)
+    available_columns = set(df_lf.collect_schema().names())
     required_cols = {args.target_col, args.naics_col, args.zip_col}
-    missing_cols = required_cols - set(df.columns)
+    missing_cols = required_cols - available_columns
     if missing_cols:
         missing = ", ".join(sorted(missing_cols))
         raise ValueError(f"Training data missing required columns: {missing}")
 
-    y = df[args.target_col].to_numpy()
+    df = df_lf.select(list(required_cols)).collect()
+
+    y_series = df[args.target_col]
+    y = y_series.to_numpy()
     if set(np.unique(y)) - {0, 1}:  # pragma: no cover - guard unexpected values
         raise ValueError(
             "Target column must contain only 0/1 values for the POC model."
@@ -135,10 +139,14 @@ def main(argv: List[str] | None = None) -> int:
     y = y.astype(int)
 
     naics_idx = build_hierarchical_indices(
-        df[args.naics_col], cut_points=naics_cuts, prefix_fill=args.prefix_fill
+        df[args.naics_col].to_list(),
+        cut_points=naics_cuts,
+        prefix_fill=args.prefix_fill,
     )
     zip_idx = build_hierarchical_indices(
-        df[args.zip_col], cut_points=zip_cuts, prefix_fill=args.prefix_fill
+        df[args.zip_col].to_list(),
+        cut_points=zip_cuts,
+        prefix_fill=args.prefix_fill,
     )
 
     naics_levels = naics_idx["code_levels"].astype(int, copy=False)
@@ -182,7 +190,7 @@ def main(argv: List[str] | None = None) -> int:
         "effects": effects,
         "meta": {
             "train_path": str(Path(args.train).resolve()),
-            "n_rows": int(len(df)),
+            "n_rows": int(df.height),
             "n_positive": int(y.sum()),
             "target_col": args.target_col,
             "naics_col": args.naics_col,

@@ -1,7 +1,8 @@
-import sys
-import numpy as np
 import random
-import pandas as pd
+import sys
+
+import numpy as np
+import polars as pl
 from hierarchical_naics_model.synthgen.generate import (
     HierSpec,
     generate_synthetic_dataset,
@@ -11,7 +12,7 @@ from hierarchical_naics_model.synthgen import generate
 
 
 def test_save_outputs(tmp_path):
-    df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
     artifacts = {"meta": {"test": True}}
     out_dir = tmp_path / "out"
     generate._save_outputs(df, artifacts, str(out_dir))
@@ -22,14 +23,14 @@ def test_save_outputs(tmp_path):
 
 
 def test_save_outputs_none_dir():
-    df = pd.DataFrame({"a": [1, 2]})
+    df = pl.DataFrame({"a": [1, 2]})
     artifacts = {"meta": {"test": True}}
     # Should simply return, not raise
     generate._save_outputs(df, artifacts, None)
 
 
 def test_save_outputs_exception(tmp_path, monkeypatch):
-    df = pd.DataFrame({"a": [1, 2]})
+    df = pl.DataFrame({"a": [1, 2]})
     artifacts = {"meta": {"test": True}}
     out_dir = tmp_path / "out"
 
@@ -37,8 +38,8 @@ def test_save_outputs_exception(tmp_path, monkeypatch):
     def raise_exc(*args, **kwargs):
         raise Exception("fail")
 
-    monkeypatch.setattr(df, "to_parquet", raise_exc)
-    # Should fall back to to_csv
+    monkeypatch.setattr(df, "write_parquet", raise_exc)
+    # Should fall back to write_csv
     generate._save_outputs(df, artifacts, str(out_dir))
     assert (out_dir / "synthetic.csv").exists()
     assert (out_dir / "artifacts.json").exists()
@@ -141,11 +142,17 @@ def test_small_generation_shapes_and_bounds():
         n=200, naics_spec=naics, zip_spec=zipsp, seed=123
     )
 
-    assert len(df) == 200
+    assert df.height == 200
     assert {"naics_code", "zip_code", "eta", "p", "y"}.issubset(df.columns)
-    assert df["p"].between(0.0, 1.0, inclusive="both").all()
-    assert df["naics_code"].str.len().unique().tolist() == [max(naics.cut_points)]
-    assert df["zip_code"].str.len().unique().tolist() == [max(zipsp.cut_points)]
+    assert all(0.0 <= val <= 1.0 for val in df["p"].to_list())
+    naics_lengths = (
+        df.select(pl.col("naics_code").str.len_chars().unique()).to_series().to_list()
+    )
+    zip_lengths = (
+        df.select(pl.col("zip_code").str.len_chars().unique()).to_series().to_list()
+    )
+    assert naics_lengths == [max(naics.cut_points)]
+    assert zip_lengths == [max(zipsp.cut_points)]
 
 
 def test_eta_matches_parameter_sum():
@@ -160,7 +167,7 @@ def test_eta_matches_parameter_sum():
     df, artifacts = generate_synthetic_dataset(
         n=10, naics_spec=naics, zip_spec=zipsp, seed=7
     )
-    row = df.iloc[0]
+    row = df.row(0, named=True)
     naics_code = row["naics_code"]
     zip_code = row["zip_code"]
     eff = artifacts["effects"]

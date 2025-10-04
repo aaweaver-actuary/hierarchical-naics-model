@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Sequence, Tuple, Any, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -247,7 +247,7 @@ def generate_synthetic_dataset(
             )
         rows.append(row)
 
-    df = pd.DataFrame(rows)
+    df = pl.DataFrame(rows)
 
     artifacts = {
         "naics_maps": {
@@ -273,18 +273,22 @@ def generate_synthetic_dataset(
     return df, artifacts
 
 
-def _save_outputs(df, artifacts, out_dir: str | None) -> None:
+def _save_outputs(
+    df: pl.DataFrame | pl.LazyFrame, artifacts, out_dir: str | None
+) -> None:
     if out_dir is None:
         return
-    import pathlib
     import json
+    from pathlib import Path
 
-    out = pathlib.Path(out_dir)
+    out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    data = df.collect() if isinstance(df, pl.LazyFrame) else df
     try:
-        df.to_parquet(out / "synthetic.parquet", index=False)
+        data.write_parquet(out / "synthetic.parquet")
     except Exception:
-        df.to_csv(out / "synthetic.csv", index=False)
+        data.write_csv(out / "synthetic.csv")
     with (out / "artifacts.json").open("w", encoding="utf-8") as f:
         json.dump(artifacts, f, indent=2)
 
@@ -349,7 +353,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
     _save_outputs(df, artifacts, args.out_dir)
 
-    print(f"Generated {len(df)} rows.")
+    print(f"Generated {df.height} rows.")
     if args.out_dir:
         print(f"Wrote data/artifacts to: {args.out_dir}")
 

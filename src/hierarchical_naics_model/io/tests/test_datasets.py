@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-import pandas as pd
+import polars as pl
+from polars.testing import assert_frame_equal
 import pytest
 
 from hierarchical_naics_model.io.datasets import load_parquet, save_parquet
 
 
 def test_save_and_load_parquet(tmp_path):
-    df = pd.DataFrame({"A": [1, 2], "B": ["x", "y"]})
+    df = pl.DataFrame({"A": [1, 2], "B": ["x", "y"]})
     path = tmp_path / "nested" / "data.parquet"
     save_parquet(df, path)
-    loaded = load_parquet(path)
+    loaded = load_parquet(path).collect()
 
-    pd.testing.assert_frame_equal(loaded, df)
+    assert_frame_equal(loaded, df)
 
 
 def test_load_parquet_missing(tmp_path):

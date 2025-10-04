@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import List, Sequence
+
 import numpy as np
 
 from .validation import validate_level_indices
@@ -83,7 +84,7 @@ def eta_additive(
 
     Examples
     --------
-    >>> import numpy as np
+    >>> # import numpy as np
     >>> beta0 = -1.0
     >>> naics_effects = [np.array([0.1, -0.2]), np.array([0.05, 0.0, -0.05])]
     >>> zip_effects   = [np.array([0.2]),      np.array([-0.1, 0.0])]
@@ -172,7 +173,7 @@ def eta_nested(
 
     Examples
     --------
-    >>> import numpy as np
+    >>> # import numpy as np
     >>> beta0 = -1.0
     >>> naics_base   = np.array([0.1, -0.1], dtype=float)
     >>> naics_deltas = [np.array([0.0, 0.05, -0.05], dtype=float)]
