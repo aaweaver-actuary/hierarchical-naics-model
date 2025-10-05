@@ -524,7 +524,31 @@ vi_model = vi_strategy.build_model(
     zip_group_counts=h_zip["group_counts"],
 )
 ```
-### 4.3 Extract Effects and Score New Data
+### 4.3 Command-Line Fit & Dashboard
+
+Prefer working from the CLI? Once the package is installed you have two entry points: `synthgen` (synthetic data generation) and `model` (fit/score/report). The `model fit` subcommand accepts a `--dashboard` flag that writes an interactive Plotly report and opens it in your browser when the fit completes. Add `--no-open-dashboard` if you only want the HTML on disk (useful for CI or headless boxes).
+
+```bash
+# generate a compact synthetic dataset
+uv run synthgen --n 200 --seed 123 --out artifacts/e2e/raw.parquet
+
+# align column names with the CLI defaults (is_written / NAICS / ZIP)
+uv run python -c "import polars as pl; df = pl.read_parquet('artifacts/e2e/raw.parquet'); df = df.rename({'naics_code': 'NAICS', 'zip_code': 'ZIP', 'y': 'is_written'}); df.write_parquet('artifacts/e2e/train.parquet')"
+
+# fit the hierarchical model and render the dashboard
+uv run model fit \
+    --train artifacts/e2e/train.parquet \
+    --artifacts artifacts/e2e/model \
+    --dashboard artifacts/e2e/dashboard \
+    --naics-cuts 2 4 \
+    --zip-cuts 3 5
+
+# dashboard opens automatically (artifacts/e2e/dashboard/model_dashboard.html)
+```
+
+Shortcut: the repository ships with `make e2e-test`, which wires the three commands above together, runs with sensible inference defaults (300 tune/draws, `target_accept=0.9`), and prints the dashboard path once finished.
+
+### 4.4 Extract Effects and Score New Data
 
 #### 5) Sample from the posterior
 ```python
@@ -570,7 +594,7 @@ scored = predict_proba_nested(
 print(scored[["NAICS","ZIP","p","any_backoff"]].head())
 ```
 
-### 4.4 Evaluate Calibration and Ranking
+### 4.5 Evaluate Calibration and Ranking
 
 #### 7) Calibration diagnostics
 ```python
@@ -586,7 +610,7 @@ rk = ranking_report(df["is_written"].to_numpy(), scored["p"].to_numpy(), ks=(5,1
 print("ECE:", cal["ece"], "Brier:", cal["brier"], "LogLoss:", cal["log_loss"])
 print(rk["summary"])
 ```
-### 4.5 What You Get
+### 4.6 What You Get
 
 - **Posterior means** for intercept, NAICS/ZIP base effects, and deltas.
 - **Probabilities** $p$ for each row, with `*_known` flags and `any_backoff` indicating whether backoff occurred.
