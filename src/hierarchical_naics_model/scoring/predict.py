@@ -93,6 +93,7 @@ def predict_proba_nested(
 
     effect_value_cols: list[str] = []
     known_cols: list[str] = []
+    component_cols: list[str] = []
 
     # Prepare NAICS level labels
     if naics_cut_points:
@@ -106,7 +107,9 @@ def predict_proba_nested(
             naics_cut_points, naics_level_maps, naics_vectors
         ):
             label_col = f"__naics_L{cut}_label"
-            value_col = f"__naics_L{cut}_value"
+            value_col = (
+                f"naics_L{cut}_effect" if return_components else f"__naics_L{cut}_value"
+            )
             value_map = _value_map(level_map, values)
             if value_map:
                 mapping_df = pl.DataFrame(
@@ -132,6 +135,8 @@ def predict_proba_nested(
                     lf = lf.with_columns(pl.lit(False).alias(known_col))
                     known_cols.append(known_col)
             effect_value_cols.append(value_col)
+            if return_components:
+                component_cols.append(value_col)
 
     # Prepare ZIP level labels
     if zip_cut_points:
@@ -143,7 +148,9 @@ def predict_proba_nested(
 
         for cut, level_map, values in zip(zip_cut_points, zip_level_maps, zip_vectors):
             label_col = f"__zip_L{cut}_label"
-            value_col = f"__zip_L{cut}_value"
+            value_col = (
+                f"zip_L{cut}_effect" if return_components else f"__zip_L{cut}_value"
+            )
             value_map = _value_map(level_map, values)
             if value_map:
                 mapping_df = pl.DataFrame(
@@ -169,6 +176,8 @@ def predict_proba_nested(
                     lf = lf.with_columns(pl.lit(False).alias(known_col))
                     known_cols.append(known_col)
             effect_value_cols.append(value_col)
+            if return_components:
+                component_cols.append(value_col)
 
     # eta and probability
 
@@ -202,6 +211,7 @@ def predict_proba_nested(
     if return_components:
         projected_cols.extend(pl.col(name) for name in known_cols)
         projected_cols.append(pl.col("any_backoff"))
+        projected_cols.extend(pl.col(name) for name in component_cols)
 
     result = lf.select(projected_cols).collect()
     return result

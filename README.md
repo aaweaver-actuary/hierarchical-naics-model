@@ -540,13 +540,15 @@ uv run model fit \
     --train artifacts/e2e/train.parquet \
     --artifacts artifacts/e2e/model \
     --dashboard artifacts/e2e/dashboard \
-    --naics-cuts 2 4 \
-    --zip-cuts 3 5
+    --naics-cuts 2 3 4 5 6 \
+    --zip-cuts 1 2 3 4 5
 
 # dashboard opens automatically (artifacts/e2e/dashboard/model_dashboard.html)
 ```
 
 Shortcut: the repository ships with `make e2e-test`, which wires the three commands above together, runs with sensible inference defaults (300 tune/draws, `target_accept=0.9`), and prints the dashboard path once finished.
+
+The example intentionally spans the full NAICS hierarchy (2–6 digits) and ZIP depth (1–5 digits), highlighting how the model shares signal up and down the tree to stabilize sparse codes. The dashboard now includes a contribution profile and Sankey-style decision flow so you can inspect how base and delta effects combine for the average policy.
 
 ### 4.4 Extract Effects and Score New Data
 

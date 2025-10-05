@@ -70,18 +70,17 @@ test-rec-only:
 .PHONY: e2e-test
 e2e-test:
 	mkdir -p artifacts/e2e
-	uv run synthgen --n 200 --seed 123 --out artifacts/e2e/raw.parquet
+	uv run synthgen --n 200 --seed 123 --naics-cut-points 2 3 4 5 6 --naics-branching 3 3 2 2 --zip-cut-points 1 2 3 4 5 --zip-branching 3 3 2 2 --out artifacts/e2e/raw.parquet
 	uv run python -c "import polars as pl; df = pl.read_parquet('artifacts/e2e/raw.parquet'); df = df.rename({'naics_code': 'NAICS', 'zip_code': 'ZIP', 'y': 'is_written'}); df.write_parquet('artifacts/e2e/synthetic.parquet')"
 	uv run model fit \
 		--train artifacts/e2e/synthetic.parquet \
 		--artifacts artifacts/e2e/model \
 		--dashboard artifacts/e2e/dashboard \
-		--naics-cuts 2 4 \
-		--zip-cuts 3 5 \
+		--naics-cuts 2 3 4 5 6 \
+		--zip-cuts 1 2 3 4 5 \
 		--draws 300 \
 		--tune 300 \
-		--chains 1 \
-		--cores 1 \
-		--target-accept 0.9 \
-		--no-progressbar
+		--chains 4 \
+		--cores 4 \
+		--target-accept 0.9
 	@printf '\nDashboard written to %s\n' "artifacts/e2e/dashboard/model_dashboard.html"

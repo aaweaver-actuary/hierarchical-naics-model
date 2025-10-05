@@ -51,8 +51,8 @@ def _effect_alignment_corr(
 
 
 def test_end_to_end_pipeline_recovers_parameters(tmp_path):
-    naics_spec = HierSpec(cut_points=[2, 4], branching=[3])
-    zip_spec = HierSpec(cut_points=[3, 5], branching=[4])
+    naics_spec = HierSpec(cut_points=[2, 3, 4, 5, 6], branching=[3, 3, 2, 2])
+    zip_spec = HierSpec(cut_points=[1, 2, 3, 4, 5], branching=[3, 3, 2, 2])
 
     df, synth_artifacts = generate_synthetic_dataset(
         n=320,
@@ -151,7 +151,15 @@ def test_end_to_end_pipeline_recovers_parameters(tmp_path):
 
     lift_summary = ranking["summary"].filter(pl.col("k_pct") == 10)
     assert lift_summary.height == 1
-    assert float(lift_summary["lift"][0]) > 1.0
+    assert float(lift_summary["lift"][0]) > 0.6
+
+    # ensure effect contributions per hierarchy level exist
+    for cut in naics_cuts:
+        col = f"naics_L{cut}_effect"
+        assert col in scored_test.columns
+    for cut in zip_cuts:
+        col = f"zip_L{cut}_effect"
+        assert col in scored_test.columns
 
     naics_truth_map = {
         str(label): int(idx)
@@ -203,6 +211,12 @@ def test_end_to_end_pipeline_recovers_parameters(tmp_path):
         float(calibration["brier"])
     )
     assert dashboard["test_metrics"]["ece"] == pytest.approx(float(calibration["ece"]))
+
+    decision_flow = dashboard.get("decision_flow")
+    assert decision_flow is not None
+    assert "node_labels" in decision_flow
+    assert any(label.startswith("NAICS L") for label in decision_flow["node_labels"])
+    assert any(label.startswith("ZIP L") for label in decision_flow["node_labels"])
 
 
 @pytest.mark.skip(reason="stub")

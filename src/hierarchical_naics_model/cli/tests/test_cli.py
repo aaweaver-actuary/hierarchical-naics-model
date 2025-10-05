@@ -269,6 +269,13 @@ def test_fit_cli_dashboard_generation(monkeypatch, tmp_path, posterior_stub):
     assert exit_code == 0
     assert captured["kwargs"]["output_dir"] == dashboard_dir
     assert captured["kwargs"]["train_summary"]["n_train"] == 2
+    scored_cols = captured["kwargs"]["scored_test"].columns
+    assert any(
+        col.startswith("naics_L") and col.endswith("_effect") for col in scored_cols
+    )
+    assert any(
+        col.startswith("zip_L") and col.endswith("_effect") for col in scored_cols
+    )
     assert opened["path"] == str(html_path)
 
 

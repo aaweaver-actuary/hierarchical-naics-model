@@ -104,20 +104,64 @@ def build_dashboard(
         else [float("nan")] * len(test_probs)
     )
 
+    naics_effect_cols = sorted(
+        [
+            col
+            for col in scored.columns
+            if col.startswith("naics_L") and col.endswith("_effect")
+        ],
+        key=lambda name: int(name.split("_")[1][1:]),
+    )
+    zip_effect_cols = sorted(
+        [
+            col
+            for col in scored.columns
+            if col.startswith("zip_L") and col.endswith("_effect")
+        ],
+        key=lambda name: int(name.split("_")[1][1:]),
+    )
+    component_cols = naics_effect_cols + zip_effect_cols
+
+    if component_cols:
+        sum_expr = pl.sum_horizontal([pl.col(col) for col in component_cols])
+        intercept_expr = pl.col("eta") - sum_expr
+    else:
+        intercept_expr = pl.col("eta")
+
+    intercept_mean = float(scored.select(intercept_expr.mean()).item())
+    intercept_abs = float(scored.select(intercept_expr.abs().mean()).item())
+
+    component_display_order: list[tuple[str, float, float]] = []
+    if np.isfinite(intercept_mean) and np.isfinite(intercept_abs):
+        component_display_order.append(("Intercept β0", intercept_mean, intercept_abs))
+
+    def _effect_label(raw: str) -> str:
+        family, level, _ = raw.split("_")
+        return f"{family.upper()} {level.upper()}"
+
+    for col in naics_effect_cols + zip_effect_cols:
+        mean_val = float(scored.select(pl.col(col).mean()).item())
+        abs_val = float(scored.select(pl.col(col).abs().mean()).item())
+        if not np.isfinite(mean_val) and not np.isfinite(abs_val):
+            continue
+        component_display_order.append((_effect_label(col), mean_val, abs_val))
+
     fig = make_subplots(
         rows=2,
-        cols=2,
+        cols=3,
         subplot_titles=(
             "Calibration curve",
             "Lift & cumulative gain",
+            "Hierarchy contribution profile",
             "Predicted probability distribution",
             "Predicted vs. true probability",
+            "Hierarchy decision flow",
         ),
-        vertical_spacing=0.16,
-        horizontal_spacing=0.12,
+        vertical_spacing=0.18,
+        horizontal_spacing=0.10,
         specs=[
-            [{"type": "xy"}, {"secondary_y": True}],
-            [{"type": "xy"}, {"type": "xy"}],
+            [{"type": "xy"}, {"type": "xy", "secondary_y": True}, {"type": "xy"}],
+            [{"type": "xy"}, {"type": "xy"}, {"type": "domain"}],
         ],
     )
 
@@ -165,6 +209,23 @@ def build_dashboard(
         secondary_y=True,
     )
 
+    if component_display_order:
+        fig.add_trace(
+            go.Bar(
+                x=[label for label, _, _ in component_display_order],
+                y=[mean for _, mean, _ in component_display_order],
+                name="Mean contribution",
+            ),
+            row=1,
+            col=3,
+        )
+    else:
+        fig.add_trace(
+            go.Bar(x=["None"], y=[0.0], name="Mean contribution"),
+            row=1,
+            col=3,
+        )
+
     fig.add_trace(
         go.Histogram(x=test_probs, nbinsx=20, name="Prediction density"),
         row=2,
@@ -195,12 +256,56 @@ def build_dashboard(
         col=2,
     )
 
+    node_labels = ["Logit η"]
+    node_index = {"Logit η": 0}
+    sources: list[int] = []
+    targets: list[int] = []
+    values: list[float] = []
+    link_labels: list[str] = []
+
+    def _ensure_node(label: str) -> int:
+        if label not in node_index:
+            node_index[label] = len(node_labels)
+            node_labels.append(label)
+        return node_index[label]
+
+    target_idx = node_index["Logit η"]
+    for label, _, mean_abs in component_display_order:
+        if not np.isfinite(mean_abs) or mean_abs <= 0.0:
+            continue
+        src_idx = _ensure_node(label)
+        sources.append(src_idx)
+        targets.append(target_idx)
+        values.append(mean_abs)
+        link_labels.append(f"{label}: mean |effect| {mean_abs:.3f}")
+
+    if values:
+        fig.add_trace(
+            go.Sankey(
+                node=dict(label=node_labels),
+                link=dict(
+                    source=sources, target=targets, value=values, label=link_labels
+                ),
+                arrangement="snap",
+            ),
+            row=2,
+            col=3,
+        )
+    else:
+        fig.add_trace(
+            go.Indicator(mode="number", value=0.0, title={"text": "No hierarchy flow"}),
+            row=2,
+            col=3,
+        )
+
     fig.update_layout(template="plotly_white")
     fig.update_xaxes(title="Probability bin", row=1, col=1)
     fig.update_yaxes(title="Mean", row=1, col=1)
     fig.update_xaxes(title="Top k%", row=1, col=2)
     fig.update_yaxes(title="Lift", row=1, col=2, secondary_y=False)
     fig.update_yaxes(title="Cumulative gain", row=1, col=2, secondary_y=True)
+    fig.update_xaxes(title="Component", row=1, col=3)
+    fig.update_yaxes(title="Mean contribution", row=1, col=3)
     fig.update_xaxes(title="p_hat", row=2, col=1)
     fig.update_yaxes(title="Count", row=2, col=1)
     fig.update_xaxes(title="True probability", row=2, col=2)
@@ -306,11 +411,22 @@ def build_dashboard(
         "avg_pred": float(scored["p"].mean()),
     }
 
+    decision_flow = {
+        "node_labels": node_labels,
+        "sources": sources,
+        "targets": targets,
+        "values": values,
+        "mean_contributions": {
+            label: mean for label, mean, _ in component_display_order
+        },
+    }
+
     payload: DashboardPayload = {
         "figure": fig,
         "fit_stats": fit_stats,
         "validation": validation_stats,
         "test_metrics": test_metrics,
+        "decision_flow": decision_flow,
     }
     if html_path is not None:
         payload["artifacts"] = {"html_path": html_path}

@@ -67,6 +67,9 @@ def test_predict_proba_nested_eta(
         prefix_fill="0",
         return_components=True,
     )
+    assert "naics_L2_effect" in out.columns
+    assert "naics_L3_effect" in out.columns
+    assert "zip_L2_effect" in out.columns
     assert abs(out["eta"][0] - expected_eta) < 1e-12
 
 
