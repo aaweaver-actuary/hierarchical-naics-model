@@ -204,6 +204,130 @@ def test_fit_cli_no_progressbar(monkeypatch, tmp_path, posterior_stub):
     assert DummyStrategy.kwargs["progressbar"] is False
 
 
+def test_fit_cli_dashboard_generation(monkeypatch, tmp_path, posterior_stub):
+    df = pl.LazyFrame(
+        {"is_written": [1, 0], "NAICS": ["52", "52"], "ZIP": ["12", "12"]}
+    )
+
+    monkeypatch.setattr(fit, "load_parquet", lambda _: df)
+    monkeypatch.setattr(
+        fit,
+        "build_hierarchical_indices",
+        lambda codes, cut_points, prefix_fill: _fake_indices(
+            len(codes), cut_points, prefix_fill
+        ),
+    )
+
+    class DummyStrategy:
+        def __init__(self, **kwargs):
+            pass
+
+        def build_model(self, **kwargs):
+            return object()
+
+        def sample_posterior(self, *args, **kwargs):
+            return posterior_stub
+
+    monkeypatch.setattr(fit, "PymcNestedDeltaStrategy", DummyStrategy)
+
+    captured: dict[str, object] = {}
+    html_path = tmp_path / "dash" / "model_dashboard.html"
+
+    def fake_dashboard(**kwargs):
+        captured["kwargs"] = kwargs
+        return {
+            "figure": object(),
+            "fit_stats": {"n_train": kwargs["train_summary"]["n_train"]},
+            "validation": {"loo": 0.0, "ece": 0.1, "brier": 0.2, "log_loss": 0.3},
+            "test_metrics": {"brier": 0.2, "ece": 0.1, "log_loss": 0.3},
+            "artifacts": {"html_path": html_path},
+        }
+
+    monkeypatch.setattr(fit, "build_dashboard", fake_dashboard)
+
+    opened: dict[str, object] = {}
+
+    def fake_open(path):
+        opened["path"] = path
+        return True
+
+    monkeypatch.setattr(fit.webbrowser, "open", fake_open)
+
+    dashboard_dir = tmp_path / "dash"
+
+    exit_code = fit.main(
+        [
+            "--train",
+            "train.parquet",
+            "--artifacts",
+            str(tmp_path / "artifacts.pkl"),
+            "--dashboard",
+            str(dashboard_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["kwargs"]["output_dir"] == dashboard_dir
+    assert captured["kwargs"]["train_summary"]["n_train"] == 2
+    assert opened["path"] == str(html_path)
+
+
+def test_fit_cli_dashboard_suppressed_open(monkeypatch, tmp_path, posterior_stub):
+    df = pl.LazyFrame(
+        {"is_written": [1, 0], "NAICS": ["52", "52"], "ZIP": ["12", "12"]}
+    )
+
+    monkeypatch.setattr(fit, "load_parquet", lambda _: df)
+    monkeypatch.setattr(
+        fit,
+        "build_hierarchical_indices",
+        lambda codes, cut_points, prefix_fill: _fake_indices(
+            len(codes), cut_points, prefix_fill
+        ),
+    )
+
+    class DummyStrategy:
+        def __init__(self, **kwargs):
+            pass
+
+        def build_model(self, **kwargs):
+            return object()
+
+        def sample_posterior(self, *args, **kwargs):
+            return posterior_stub
+
+    monkeypatch.setattr(fit, "PymcNestedDeltaStrategy", DummyStrategy)
+
+    html_path = tmp_path / "dash" / "model_dashboard.html"
+
+    def fake_dashboard(**kwargs):
+        return {
+            "figure": object(),
+            "fit_stats": {"n_train": kwargs["train_summary"]["n_train"]},
+            "validation": {"loo": 0.0, "ece": 0.1, "brier": 0.2, "log_loss": 0.3},
+            "test_metrics": {"brier": 0.2, "ece": 0.1, "log_loss": 0.3},
+            "artifacts": {"html_path": html_path},
+        }
+
+    monkeypatch.setattr(fit, "build_dashboard", fake_dashboard)
+
+    monkeypatch.setattr(fit.webbrowser, "open", pytest.fail)
+
+    exit_code = fit.main(
+        [
+            "--train",
+            "train.parquet",
+            "--artifacts",
+            str(tmp_path / "artifacts.pkl"),
+            "--dashboard",
+            str(tmp_path / "dash"),
+            "--no-open-dashboard",
+        ]
+    )
+
+    assert exit_code == 0
+
+
 def test_fit_cli_map_strategy(monkeypatch, tmp_path, posterior_stub):
     df = pl.LazyFrame(
         {"is_written": [1, 0], "NAICS": ["52", "52"], "ZIP": ["12", "12"]}

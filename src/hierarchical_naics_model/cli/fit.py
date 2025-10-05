@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import webbrowser
 from pathlib import Path
-from typing import Dict, List, Mapping, Sequence
+from typing import Dict, List, Mapping, Sequence, cast
 
 import numpy as np
+import polars as pl
 
 from ..core.hierarchy import build_hierarchical_indices
+from ..eval.calibration import calibration_report
+from ..eval.ranking import ranking_report
 from ..io.artifacts import Artifacts, LevelMaps, save_artifacts
 from ..io.datasets import load_parquet
 from ..modeling.pymc_nested import PymcNestedDeltaStrategy
+from ..reporting.dashboard import build_dashboard
 from ..scoring.extract import extract_effect_tables_nested
+from ..scoring.predict import predict_proba_nested
 
 
 def _parse_cut_points(values: List[int] | None, default: List[int]) -> List[int]:
@@ -131,6 +137,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--summary",
         help="Optional path to write a JSON training summary.",
     )
+    parser.add_argument(
+        "--dashboard",
+        help="Optional directory to render an interactive dashboard after fitting.",
+    )
+    parser.add_argument(
+        "--no-open-dashboard",
+        action="store_true",
+        help="Render the dashboard without opening it in a browser.",
+    )
     return parser
 
 
@@ -220,6 +235,26 @@ def main(argv: List[str] | None = None) -> int:
 
     effects = extract_effect_tables_nested(idata)
 
+    naics_deltas = list(
+        cast(Sequence[np.ndarray], effects.get("naics_deltas", []) or [])
+    )
+    desired_naics_levels = len(naics_cuts) - 1
+    naics_deltas = naics_deltas[:desired_naics_levels]
+    while len(naics_deltas) < desired_naics_levels:
+        level_pos = len(naics_deltas) + 1
+        size = naics_idx["group_counts"][level_pos]
+        naics_deltas.append(np.zeros(size, dtype=float))
+    effects["naics_deltas"] = naics_deltas
+
+    zip_deltas = list(cast(Sequence[np.ndarray], effects.get("zip_deltas", []) or []))
+    desired_zip_levels = len(zip_cuts) - 1
+    zip_deltas = zip_deltas[:desired_zip_levels]
+    while len(zip_deltas) < desired_zip_levels:
+        level_pos = len(zip_deltas) + 1
+        size = zip_idx["group_counts"][level_pos]
+        zip_deltas.append(np.zeros(size, dtype=float))
+    effects["zip_deltas"] = zip_deltas
+
     naics_maps: LevelMaps = {
         "levels": list(naics_idx["levels"]),
         "maps": _maps_to_plain_dicts(list(naics_idx["maps"])),
@@ -265,6 +300,69 @@ def main(argv: List[str] | None = None) -> int:
         dst = Path(summary_path)
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(json.dumps(summary_info, indent=2), encoding="utf-8")
+
+    if args.dashboard:
+        dashboard_dir = Path(args.dashboard).expanduser()
+        dashboard_dir.mkdir(parents=True, exist_ok=True)
+
+        scored_train = predict_proba_nested(
+            df,
+            naics_col=args.naics_col,
+            zip_col=args.zip_col,
+            naics_cut_points=naics_cuts,
+            zip_cut_points=zip_cuts,
+            naics_level_maps=naics_idx["maps"],
+            zip_level_maps=zip_idx["maps"],
+            effects=effects,
+            prefix_fill=args.prefix_fill,
+            return_components=True,
+        ).with_columns(
+            pl.col("eta").alias("eta_true"),
+            pl.col(args.target_col).cast(pl.Float64).alias("y_true"),
+            pl.col("p").alias("p_true"),
+        )
+
+        calibration = calibration_report(
+            scored_train["y_true"], scored_train["p"], bins=10
+        )
+        ranking = ranking_report(
+            scored_train["y_true"], scored_train["p"], ks=[10, 20, 40]
+        )
+
+        try:
+            import arviz as az  # type: ignore
+
+            loo_report = az.loo(idata, pointwise=False)
+        except Exception:  # noqa: BLE001 - graceful degradation
+            loo_report = None
+
+        train_rate = float(df[args.target_col].mean()) if df.height else float("nan")
+
+        dashboard_payload = build_dashboard(
+            train_summary={
+                "n_train": df.height,
+                "train_positive_rate": train_rate,
+                "n_test": df.height,
+                "test_positive_rate": train_rate,
+            },
+            calibration=calibration,
+            ranking=ranking,
+            loo=loo_report,
+            scored_test=scored_train,
+            parameter_alignment={},
+            output_dir=dashboard_dir,
+        )
+
+        if not args.no_open_dashboard:
+            artifacts_payload = dashboard_payload.get("artifacts")
+            html_path = None
+            if isinstance(artifacts_payload, Mapping):
+                html_path = artifacts_payload.get("html_path")
+            if html_path:
+                try:
+                    webbrowser.open(str(html_path))
+                except Exception:  # noqa: BLE001 - opening is best-effort
+                    pass
 
     print(
         "[fit] completed",

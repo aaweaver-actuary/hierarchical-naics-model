@@ -241,6 +241,7 @@ class PymcNestedDeltaStrategy(ConversionModelStrategy):
         target_accept: float | None = None,
         progressbar: bool = True,
         random_seed: int | None = None,
+        idata_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Any:
         overrides = {
             "draws": draws,
@@ -256,6 +257,8 @@ class PymcNestedDeltaStrategy(ConversionModelStrategy):
         )
         if random_seed is not None:
             overrides["random_seed"] = random_seed
+        if idata_kwargs is not None:
+            overrides["idata_kwargs"] = dict(idata_kwargs)
         return _pymc_sample_posterior(model, **overrides)
 
 
