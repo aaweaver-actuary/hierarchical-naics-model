@@ -351,6 +351,13 @@ def main(argv: List[str] | None = None) -> int:
             scored_test=scored_train,
             parameter_alignment={},
             output_dir=dashboard_dir,
+            naics_cut_points=naics_cuts,
+            zip_cut_points=zip_cuts,
+            naics_level_maps=naics_idx["maps"],
+            zip_level_maps=zip_idx["maps"],
+            effects=effects,
+            idata=idata,
+            prefix_fill=args.prefix_fill,
         )
 
         if not args.no_open_dashboard:

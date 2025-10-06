@@ -236,10 +236,21 @@ def test_fit_cli_dashboard_generation(monkeypatch, tmp_path, posterior_stub):
     def fake_dashboard(**kwargs):
         captured["kwargs"] = kwargs
         return {
-            "figure": object(),
+            "html": '<div data-tab="model-fit"></div>',
             "fit_stats": {"n_train": kwargs["train_summary"]["n_train"]},
             "validation": {"loo": 0.0, "ece": 0.1, "brier": 0.2, "log_loss": 0.3},
             "test_metrics": {"brier": 0.2, "ece": 0.1, "log_loss": 0.3},
+            "decision_flow": {
+                "node_labels": ["Logit η"],
+                "sources": [],
+                "targets": [],
+                "values": [],
+            },
+            "inference": {
+                "effects": {},
+                "naics_cut_points": [2],
+                "zip_cut_points": [1],
+            },
             "artifacts": {"html_path": html_path},
         }
 
@@ -309,10 +320,21 @@ def test_fit_cli_dashboard_suppressed_open(monkeypatch, tmp_path, posterior_stub
 
     def fake_dashboard(**kwargs):
         return {
-            "figure": object(),
+            "html": '<div data-tab="model-fit"></div>',
             "fit_stats": {"n_train": kwargs["train_summary"]["n_train"]},
             "validation": {"loo": 0.0, "ece": 0.1, "brier": 0.2, "log_loss": 0.3},
             "test_metrics": {"brier": 0.2, "ece": 0.1, "log_loss": 0.3},
+            "decision_flow": {
+                "node_labels": ["Logit η"],
+                "sources": [],
+                "targets": [],
+                "values": [],
+            },
+            "inference": {
+                "effects": {},
+                "naics_cut_points": [2],
+                "zip_cut_points": [1],
+            },
             "artifacts": {"html_path": html_path},
         }
 
