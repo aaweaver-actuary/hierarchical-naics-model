@@ -418,8 +418,35 @@ def test_dashboard_variable_tab_payload():
 
     variable_payload = dashboard["variables"]
     assert "variables" in variable_payload
-    assert variable_payload["max_trace"] == 200
+    expected_draws = int(posterior.sizes["draw"])
+    assert variable_payload["max_trace"] == expected_draws
     assert len(variable_payload["variables"]) >= 2
+
+    base_options = variable_payload.get("base_options")
+    assert base_options is not None, (
+        "Expected grouped base options for variable dropdown"
+    )
+    assert len(base_options) >= 1
+
+    bases_by_name = {item["base"]: item for item in base_options}
+    assert "beta0" in bases_by_name
+    beta0_group = bases_by_name["beta0"]
+    assert beta0_group["has_indices"] is False
+    assert beta0_group["variables"], (
+        "beta0 group should include at least one variable entry"
+    )
+
+    indexed_group = next(
+        (item for item in base_options if item["has_indices"] and item["variables"]),
+        None,
+    )
+    assert indexed_group is not None, (
+        "Expected at least one variable group with indices"
+    )
+    for var_entry in indexed_group["variables"]:
+        assert "[" in var_entry["label"], (
+            "Indexed variables should retain bracketed labels"
+        )
 
     beta0_entry = next(
         item for item in variable_payload["variables"] if item["id"].startswith("beta0")
@@ -428,6 +455,755 @@ def test_dashboard_variable_tab_payload():
     assert beta0_entry["r_hat"] == pytest.approx(1.0, abs=0.25)
     assert beta0_entry["ess_bulk"] > 0
     assert beta0_entry["samples"]
+    trace_info = beta0_entry.get("trace")
+    assert trace_info is not None
+    assert trace_info["total_draws"] == expected_draws
+    assert trace_info["draw_indices"] == list(range(expected_draws))
+    assert trace_info.get("hover", {}).get("mode") == "x unified"
+    prior_curve = beta0_entry["prior"].get("curve")
+    assert prior_curve is not None, (
+        "Expected prior density curve for posterior histogram overlay"
+    )
+    assert len(prior_curve.get("x", [])) >= 20
+    assert len(prior_curve.get("y", [])) == len(prior_curve["x"])
+    assert all(isinstance(val, float) for val in prior_curve["x"][:5])
+    assert all(isinstance(val, float) for val in prior_curve["y"][:5])
+
+
+def test_dashboard_variable_trace_includes_all_draws():
+    """Trace metadata should expose full draw counts for each chain."""
+
+    reliability = pl.DataFrame(
+        {
+            "bin_low": [0.0],
+            "bin_high": [0.5],
+            "mean_p": [0.22],
+            "mean_y": [0.24],
+            "gap": [0.02],
+        }
+    )
+    ranking_summary = pl.DataFrame(
+        {
+            "k_pct": [10],
+            "lift": [1.1],
+            "cum_gain": [0.38],
+        }
+    )
+
+    class DummyLoo:
+        loo = 105.2
+        loo_se = 4.5
+        pareto_k = np.array([0.2])
+
+    scored_test = pl.DataFrame(
+        {
+            "eta": [0.25, 0.31],
+            "p": [0.56, 0.58],
+            "p_true": [0.5, 0.62],
+            "naics_L2_effect": [0.03, 0.04],
+            "zip_L2_effect": [0.01, 0.015],
+            "any_backoff": [False, False],
+        }
+    )
+
+    naics_maps = [{"52": 0}]
+    zip_maps = [{"45": 0}]
+    effects = {
+        "beta0": 0.04,
+        "naics_base": np.array([0.03], dtype=float),
+        "naics_deltas": [],
+        "zip_base": np.array([0.01], dtype=float),
+        "zip_deltas": [],
+    }
+
+    draws = 240
+    chains = 2
+    beta0_values = np.linspace(0.04, 0.06, num=draws, dtype=float)
+    posterior = xr.Dataset(
+        {
+            "beta0": (
+                ("chain", "draw"),
+                np.vstack([beta0_values, beta0_values + 0.001]),
+            )
+        }
+    )
+    idata = az.InferenceData(posterior=posterior)
+
+    dashboard = build_dashboard(
+        train_summary={
+            "n_train": 120,
+            "train_positive_rate": 0.21,
+        },
+        calibration={
+            "reliability": reliability,
+            "ece": 0.04,
+            "brier": 0.23,
+            "log_loss": 0.59,
+        },
+        ranking={"summary": ranking_summary},
+        loo=DummyLoo(),
+        scored_test=scored_test,
+        parameter_alignment=None,
+        output_dir=None,
+        naics_cut_points=[2],
+        zip_cut_points=[2],
+        naics_level_maps=naics_maps,
+        zip_level_maps=zip_maps,
+        effects=effects,
+        idata=idata,
+        prefix_fill="0",
+    )
+
+    variable_payload = dashboard["variables"]
+    beta0_entry = next(
+        item for item in variable_payload["variables"] if item["id"].startswith("beta0")
+    )
+
+    trace_info = beta0_entry.get("trace")
+    assert trace_info is not None, (
+        "Trace metadata must be present for posterior variables"
+    )
+
+    assert trace_info.get("total_draws") == draws
+    assert trace_info.get("total_chains") == chains
+
+    draw_indices = trace_info.get("draw_indices")
+    assert draw_indices == list(range(draws)), "Trace should expose every draw index"
+
+    chain_series = trace_info.get("chains") or []
+    assert len(chain_series) == chains
+    for idx, series in enumerate(chain_series):
+        values = series.get("values") or []
+        assert len(values) == draws, "Displayed samples must include every draw"
+        assert series.get("chain_index") == idx
+
+
+def test_dashboard_variable_trace_with_prior_and_indices():
+    """Trace payload should include prior-informed stats and multi-index entries."""
+
+    reliability = pl.DataFrame(
+        {
+            "bin_low": [0.0],
+            "bin_high": [0.5],
+            "mean_p": [0.2],
+            "mean_y": [0.22],
+            "gap": [0.02],
+        }
+    )
+    ranking_summary = pl.DataFrame(
+        {
+            "k_pct": [10],
+            "lift": [1.15],
+            "cum_gain": [0.41],
+        }
+    )
+
+    class DummyLoo:
+        loo = 84.2
+        loo_se = 3.8
+        pareto_k = np.array([0.18])
+
+    scored_test = pl.DataFrame(
+        {
+            "eta": [0.2, 0.3],
+            "p": [0.54, 0.57],
+            "p_true": [0.5, 0.6],
+            "naics_L2_effect": [0.02, 0.03],
+            "zip_L2_effect": [0.01, 0.012],
+            "any_backoff": [False, True],
+        }
+    )
+
+    naics_maps = [{"52": 0}]
+    zip_maps = [{"45": 0}]
+    effects = {
+        "beta0": 0.03,
+        "naics_base": np.array([0.02], dtype=float),
+        "naics_deltas": [],
+        "zip_base": np.array([0.01], dtype=float),
+        "zip_deltas": [],
+    }
+
+    chains = 2
+    draws = 12
+    posterior = xr.Dataset(
+        {
+            "weights": (
+                ("chain", "draw", "idx"),
+                np.stack(
+                    [
+                        np.column_stack(
+                            [
+                                np.linspace(0.1, 0.2, num=draws),
+                                np.linspace(0.3, 0.45, num=draws),
+                            ]
+                        ),
+                        np.column_stack(
+                            [
+                                np.linspace(0.11, 0.21, num=draws),
+                                np.linspace(0.31, 0.46, num=draws),
+                            ]
+                        ),
+                    ]
+                ),
+            )
+        }
+    )
+    prior = xr.Dataset(
+        {
+            "weights": (
+                ("chain", "draw", "idx"),
+                np.stack(
+                    [
+                        np.column_stack(
+                            [
+                                np.full(draws, 0.12, dtype=float),
+                                np.full(draws, 0.4, dtype=float),
+                            ]
+                        ),
+                        np.column_stack(
+                            [
+                                np.full(draws, 0.13, dtype=float),
+                                np.full(draws, 0.41, dtype=float),
+                            ]
+                        ),
+                    ]
+                ),
+            )
+        }
+    )
+    idata = az.InferenceData(posterior=posterior, prior=prior)
+
+    dashboard = build_dashboard(
+        train_summary={
+            "n_train": 110,
+            "train_positive_rate": 0.19,
+        },
+        calibration={
+            "reliability": reliability,
+            "ece": 0.03,
+            "brier": 0.22,
+            "log_loss": 0.58,
+        },
+        ranking={"summary": ranking_summary},
+        loo=DummyLoo(),
+        scored_test=scored_test,
+        parameter_alignment=None,
+        output_dir=None,
+        naics_cut_points=[2],
+        zip_cut_points=[2],
+        naics_level_maps=naics_maps,
+        zip_level_maps=zip_maps,
+        effects=effects,
+        idata=idata,
+        prefix_fill="0",
+    )
+
+    variable_payload = dashboard["variables"]
+    weights_entries = [
+        item
+        for item in variable_payload["variables"]
+        if item["id"].startswith("weights")
+    ]
+    assert weights_entries, "Expected multi-index weight variables"
+
+    # Ensure indices preserved and trace metadata includes all chains
+    sample_entry = next(item for item in weights_entries if "[0]" in item["label"])
+    trace = sample_entry["trace"]
+    assert trace["total_chains"] == chains
+    assert trace["total_draws"] == draws
+    assert all(len(series["values"]) == draws for series in trace["chains"])
+
+    # Prior mean/curve should leverage prior group samples
+    prior_curve = sample_entry["prior"]["curve"]
+    assert prior_curve["x"], "Prior curve must provide density support"
+    assert prior_curve["y"], "Prior curve must provide density values"
+
+    grouped_bases = {entry["base"]: entry for entry in variable_payload["base_options"]}
+    assert grouped_bases["weights"]["has_indices"] is True
+
+
+def test_dashboard_variable_autocorrelation_metadata_structure():
+    """Autocorrelation diagnostics should accompany posterior variables."""
+
+    reliability = pl.DataFrame(
+        {
+            "bin_low": [0.0],
+            "bin_high": [0.5],
+            "mean_p": [0.2],
+            "mean_y": [0.22],
+            "gap": [0.02],
+        }
+    )
+    ranking_summary = pl.DataFrame(
+        {
+            "k_pct": [10],
+            "lift": [1.12],
+            "cum_gain": [0.39],
+        }
+    )
+
+    class DummyLoo:
+        loo = 91.3
+        loo_se = 3.7
+        pareto_k = np.array([0.16])
+
+    scored_test = pl.DataFrame(
+        {
+            "eta": [0.21, 0.29],
+            "p": [0.55, 0.6],
+            "p_true": [0.5, 0.61],
+            "naics_L2_effect": [0.025, 0.031],
+            "zip_L2_effect": [0.012, 0.014],
+            "any_backoff": [False, True],
+        }
+    )
+
+    naics_maps = [{"52": 0}]
+    zip_maps = [{"45": 0}]
+    effects = {
+        "beta0": 0.032,
+        "naics_base": np.array([0.02], dtype=float),
+        "naics_deltas": [],
+        "zip_base": np.array([0.011], dtype=float),
+        "zip_deltas": [],
+    }
+
+    draws = 180
+    chains = 2
+    beta0_values = np.sin(np.linspace(0.0, 6.0, num=draws, dtype=float)) * 0.01
+    posterior = xr.Dataset(
+        {
+            "beta0": (
+                ("chain", "draw"),
+                np.vstack([beta0_values, beta0_values * 1.02 + 0.0005]),
+            )
+        }
+    )
+    idata = az.InferenceData(posterior=posterior)
+
+    dashboard = build_dashboard(
+        train_summary={
+            "n_train": 200,
+            "train_positive_rate": 0.19,
+        },
+        calibration={
+            "reliability": reliability,
+            "ece": 0.035,
+            "brier": 0.225,
+            "log_loss": 0.57,
+        },
+        ranking={"summary": ranking_summary},
+        loo=DummyLoo(),
+        scored_test=scored_test,
+        parameter_alignment=None,
+        output_dir=None,
+        naics_cut_points=[2],
+        zip_cut_points=[2],
+        naics_level_maps=naics_maps,
+        zip_level_maps=zip_maps,
+        effects=effects,
+        idata=idata,
+        prefix_fill="0",
+    )
+
+    variable_payload = dashboard["variables"]
+    beta0_entry = next(
+        item for item in variable_payload["variables"] if item["id"].startswith("beta0")
+    )
+
+    autocorr = beta0_entry.get("autocorrelation")
+    assert autocorr is not None, "Autocorrelation diagnostics should be included"
+
+    expected_max_lag = min(100, int(draws * 0.1))
+    assert autocorr.get("max_lag") == expected_max_lag
+
+    lags = autocorr.get("lags")
+    assert lags == list(range(expected_max_lag + 1)), "Lags should span from 0"
+
+    per_chain = autocorr.get("per_chain") or []
+    assert len(per_chain) == chains
+    for idx, chain_data in enumerate(per_chain):
+        assert chain_data.get("chain_index") == idx
+        values = chain_data.get("values") or []
+        assert len(values) == len(lags)
+        assert all(-1.01 <= float(val) <= 1.01 for val in values)
+
+    guidance = autocorr.get("interpretation")
+    assert isinstance(guidance, str) and guidance
+    assert "lag" in guidance.lower()
+
+
+def test_dashboard_variable_autocorrelation_respects_lag_rule():
+    """Autocorrelation should include lags up to min(100, 10% of draws)."""
+
+    reliability = pl.DataFrame(
+        {
+            "bin_low": [0.0],
+            "bin_high": [0.5],
+            "mean_p": [0.19],
+            "mean_y": [0.21],
+            "gap": [0.02],
+        }
+    )
+    ranking_summary = pl.DataFrame(
+        {
+            "k_pct": [10],
+            "lift": [1.05],
+            "cum_gain": [0.36],
+        }
+    )
+
+    class DummyLoo:
+        loo = 77.1
+        loo_se = 3.5
+        pareto_k = np.array([0.2])
+
+    scored_test = pl.DataFrame(
+        {
+            "eta": [0.2, 0.27],
+            "p": [0.53, 0.58],
+            "p_true": [0.5, 0.6],
+            "naics_L2_effect": [0.02, 0.028],
+            "zip_L2_effect": [0.012, 0.013],
+            "any_backoff": [False, False],
+        }
+    )
+
+    naics_maps = [{"52": 0}]
+    zip_maps = [{"45": 0}]
+    effects = {
+        "beta0": 0.025,
+        "naics_base": np.array([0.018], dtype=float),
+        "naics_deltas": [],
+        "zip_base": np.array([0.009], dtype=float),
+        "zip_deltas": [],
+    }
+
+    draws = 2400
+    chains = 2
+    base_line = np.linspace(-0.02, 0.02, num=draws, dtype=float)
+    posterior = xr.Dataset(
+        {
+            "beta0": (
+                ("chain", "draw"),
+                np.vstack([base_line, base_line * 0.95 + 0.0008]),
+            )
+        }
+    )
+    idata = az.InferenceData(posterior=posterior)
+
+    dashboard = build_dashboard(
+        train_summary={
+            "n_train": 220,
+            "train_positive_rate": 0.2,
+        },
+        calibration={
+            "reliability": reliability,
+            "ece": 0.04,
+            "brier": 0.24,
+            "log_loss": 0.6,
+        },
+        ranking={"summary": ranking_summary},
+        loo=DummyLoo(),
+        scored_test=scored_test,
+        parameter_alignment=None,
+        output_dir=None,
+        naics_cut_points=[2],
+        zip_cut_points=[2],
+        naics_level_maps=naics_maps,
+        zip_level_maps=zip_maps,
+        effects=effects,
+        idata=idata,
+        prefix_fill="0",
+    )
+
+    variable_payload = dashboard["variables"]
+    beta0_entry = next(
+        item for item in variable_payload["variables"] if item["id"].startswith("beta0")
+    )
+    autocorr = beta0_entry.get("autocorrelation")
+    assert autocorr is not None
+
+    expected_max_lag = min(100, int(draws * 0.1))
+    assert expected_max_lag == 100
+
+    lags = autocorr.get("lags")
+    assert lags is not None
+    assert lags[-1] >= expected_max_lag, (
+        "Autocorrelation output should reach the required maximum lag"
+    )
+
+    per_chain = autocorr.get("per_chain") or []
+    assert len(per_chain) == chains
+    for chain_data in per_chain:
+        values = chain_data.get("values") or []
+        assert len(values) == len(lags)
+        assert chain_data.get("values")[0] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_dashboard_variable_ppc_overlay_structure():
+    """PPC overlays should provide KDE and observed histogram context."""
+
+    reliability = pl.DataFrame(
+        {
+            "bin_low": [0.0],
+            "bin_high": [0.5],
+            "mean_p": [0.2],
+            "mean_y": [0.22],
+            "gap": [0.02],
+        }
+    )
+    ranking_summary = pl.DataFrame(
+        {
+            "k_pct": [10],
+            "lift": [1.14],
+            "cum_gain": [0.4],
+        }
+    )
+
+    class DummyLoo:
+        loo = 90.2
+        loo_se = 3.4
+        pareto_k = np.array([0.18])
+
+    scored_test = pl.DataFrame(
+        {
+            "eta": [0.18, 0.28],
+            "p": [0.53, 0.6],
+            "p_true": [0.5, 0.61],
+            "naics_L2_effect": [0.02, 0.031],
+            "zip_L2_effect": [0.011, 0.013],
+            "any_backoff": [False, True],
+        }
+    )
+
+    naics_maps = [{"52": 0}]
+    zip_maps = [{"45": 0}]
+    effects = {
+        "beta0": 0.03,
+        "naics_base": np.array([0.02], dtype=float),
+        "naics_deltas": [],
+        "zip_base": np.array([0.01], dtype=float),
+        "zip_deltas": [],
+    }
+
+    posterior = xr.Dataset(
+        {
+            "beta0": (
+                ("chain", "draw"),
+                np.array(
+                    [
+                        [0.025, 0.03, 0.031, 0.033],
+                        [0.028, 0.032, 0.034, 0.035],
+                    ]
+                ),
+            )
+        }
+    )
+    predictive = xr.Dataset(
+        {
+            "beta0": (
+                ("chain", "draw"),
+                np.array(
+                    [
+                        [0.02, 0.024, 0.029, 0.035],
+                        [0.021, 0.026, 0.03, 0.036],
+                    ]
+                ),
+            )
+        }
+    )
+    observed = xr.Dataset(
+        {
+            "beta0": (
+                ("obs",),
+                np.array([0.02, 0.027, 0.033], dtype=float),
+            )
+        }
+    )
+    idata = az.InferenceData(
+        posterior=posterior,
+        posterior_predictive=predictive,
+        observed_data=observed,
+    )
+
+    dashboard = build_dashboard(
+        train_summary={
+            "n_train": 210,
+            "train_positive_rate": 0.2,
+        },
+        calibration={
+            "reliability": reliability,
+            "ece": 0.035,
+            "brier": 0.23,
+            "log_loss": 0.58,
+        },
+        ranking={"summary": ranking_summary},
+        loo=DummyLoo(),
+        scored_test=scored_test,
+        parameter_alignment=None,
+        output_dir=None,
+        naics_cut_points=[2],
+        zip_cut_points=[2],
+        naics_level_maps=naics_maps,
+        zip_level_maps=zip_maps,
+        effects=effects,
+        idata=idata,
+        prefix_fill="0",
+    )
+
+    variable_payload = dashboard["variables"]
+    beta0_entry = next(
+        item for item in variable_payload["variables"] if item["id"].startswith("beta0")
+    )
+    ppc = beta0_entry.get("ppc")
+    assert ppc is not None, "Expected PPC overlay metadata"
+
+    kde = ppc.get("kde") or {}
+    assert len(kde.get("x", [])) >= 50
+    assert len(kde.get("x", [])) == len(kde.get("y", []))
+    assert kde.get("normalization") == "density"
+
+    observed_meta = ppc.get("observed") or {}
+    assert observed_meta.get("histnorm") == "probability density"
+    assert observed_meta.get("samples") == pytest.approx([0.02, 0.027, 0.033])
+
+    predictive_values = [0.02, 0.024, 0.029, 0.035, 0.021, 0.026, 0.03, 0.036]
+    expected_min = min(min(predictive_values), 0.02)
+    expected_max = max(max(predictive_values), 0.033)
+    assert ppc.get("x_range") == pytest.approx(
+        [expected_min, expected_max], rel=1e-6, abs=1e-6
+    )
+
+
+def test_dashboard_variable_ppc_overlay_range_alignment():
+    """PPC overlay x-range should match observed histogram support."""
+
+    reliability = pl.DataFrame(
+        {
+            "bin_low": [0.0],
+            "bin_high": [0.5],
+            "mean_p": [0.2],
+            "mean_y": [0.22],
+            "gap": [0.02],
+        }
+    )
+    ranking_summary = pl.DataFrame(
+        {
+            "k_pct": [10],
+            "lift": [1.1],
+            "cum_gain": [0.38],
+        }
+    )
+
+    class DummyLoo:
+        loo = 88.5
+        loo_se = 3.3
+        pareto_k = np.array([0.15])
+
+    scored_test = pl.DataFrame(
+        {
+            "eta": [0.2, 0.3],
+            "p": [0.54, 0.6],
+            "p_true": [0.5, 0.62],
+            "naics_L2_effect": [0.02, 0.03],
+            "zip_L2_effect": [0.011, 0.013],
+            "any_backoff": [False, False],
+        }
+    )
+
+    posterior = xr.Dataset(
+        {
+            "beta0": (
+                ("chain", "draw"),
+                np.array(
+                    [
+                        [0.01, 0.02, 0.03, 0.04],
+                        [0.015, 0.025, 0.035, 0.045],
+                    ]
+                ),
+            )
+        }
+    )
+    predictive = xr.Dataset(
+        {
+            "beta0": (
+                ("chain", "draw"),
+                np.array(
+                    [
+                        [0.005, 0.011, 0.018, 0.028],
+                        [0.007, 0.013, 0.02, 0.03],
+                    ]
+                ),
+            )
+        }
+    )
+    observed = xr.Dataset(
+        {
+            "beta0": (
+                ("obs",),
+                np.array([0.008, 0.019, 0.029, 0.031], dtype=float),
+            )
+        }
+    )
+    idata = az.InferenceData(
+        posterior=posterior,
+        posterior_predictive=predictive,
+        observed_data=observed,
+    )
+
+    naics_maps = [{"52": 0}]
+    zip_maps = [{"45": 0}]
+    effects = {
+        "beta0": 0.025,
+        "naics_base": np.array([0.02], dtype=float),
+        "naics_deltas": [],
+        "zip_base": np.array([0.01], dtype=float),
+        "zip_deltas": [],
+    }
+
+    dashboard = build_dashboard(
+        train_summary={
+            "n_train": 205,
+            "train_positive_rate": 0.21,
+        },
+        calibration={
+            "reliability": reliability,
+            "ece": 0.034,
+            "brier": 0.229,
+            "log_loss": 0.585,
+        },
+        ranking={"summary": ranking_summary},
+        loo=DummyLoo(),
+        scored_test=scored_test,
+        parameter_alignment=None,
+        output_dir=None,
+        naics_cut_points=[2],
+        zip_cut_points=[2],
+        naics_level_maps=naics_maps,
+        zip_level_maps=zip_maps,
+        effects=effects,
+        idata=idata,
+        prefix_fill="0",
+    )
+
+    variable_payload = dashboard["variables"]
+    beta0_entry = next(
+        item for item in variable_payload["variables"] if item["id"].startswith("beta0")
+    )
+    ppc = beta0_entry.get("ppc")
+    assert ppc is not None
+    x_range = ppc.get("x_range")
+    assert x_range is not None
+
+    predictive_values = [0.005, 0.011, 0.018, 0.028, 0.007, 0.013, 0.02, 0.03]
+    observed_values = [0.008, 0.019, 0.029, 0.031]
+    expected_min = min(min(predictive_values), min(observed_values))
+    expected_max = max(max(predictive_values), max(observed_values))
+    assert x_range[0] <= expected_min
+    assert x_range[1] >= expected_max
+    assert (x_range[1] - x_range[0]) > 0, "Range should remain positive"
 
 
 def test_dashboard_hierarchy_tab_plots():

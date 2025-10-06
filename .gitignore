@@ -18,3 +18,4 @@ coverage.lcov
 test_performance.log
 radon_cc.txt
 .gitignore
+artifacts/e2e/.DS_Store

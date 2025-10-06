@@ -214,15 +214,26 @@ def _build_variable_payload(
     *,
     max_variables: int = 60,
     max_samples: int = 400,
-    max_trace: int = 200,
+    max_trace: int | None = None,
 ) -> dict[str, Any]:
     variables: list[dict[str, Any]] = []
+    grouped: dict[str, dict[str, Any]] = {}
+    max_total_draws = 0
     if idata is None or not hasattr(idata, "groups"):
-        return {"variables": variables, "max_trace": max_trace}
+        return {
+            "variables": variables,
+            "max_trace": max_total_draws,
+            "base_options": [],
+        }
     if "posterior" not in idata.groups():
-        return {"variables": variables, "max_trace": max_trace}
+        return {
+            "variables": variables,
+            "max_trace": max_total_draws,
+            "base_options": [],
+        }
 
     posterior = idata.posterior
+    prior_group = idata.prior if "prior" in idata.groups() else None
     try:
         rhat_ds = az.rhat(idata, method="rank")
     except Exception:  # noqa: BLE001
@@ -231,6 +242,161 @@ def _build_variable_payload(
         ess_bulk_ds = az.ess(idata, method="bulk")
     except Exception:  # noqa: BLE001
         ess_bulk_ds = None
+    ppc_group = (
+        idata.posterior_predictive if "posterior_predictive" in idata.groups() else None
+    )
+    observed_group = idata.observed_data if "observed_data" in idata.groups() else None
+
+    def _autocorrelation_values(series: np.ndarray, max_lag: int) -> list[float]:
+        values: list[float] = []
+        cleaned = np.asarray(series, dtype=float)
+        if cleaned.size == 0:
+            return [1.0] + [0.0] * max(0, max_lag)
+        cleaned = cleaned[np.isfinite(cleaned)]
+        if cleaned.size == 0:
+            return [1.0] + [0.0] * max(0, max_lag)
+        cleaned = cleaned - cleaned.mean()
+        denom = float(np.dot(cleaned, cleaned))
+        if denom <= 0 or not np.isfinite(denom):
+            return [1.0] + [0.0] * max(0, max_lag)
+        values.append(1.0)
+        for lag in range(1, max_lag + 1):
+            lagged = float(np.dot(cleaned[:-lag], cleaned[lag:]))
+            ac_val = lagged / denom if denom != 0 else 0.0
+            values.append(float(ac_val))
+        return values
+
+    def _autocorrelation_profile(entry_arr: np.ndarray) -> dict[str, Any]:
+        if entry_arr.ndim < 2 or entry_arr.shape[1] == 0:
+            return {
+                "max_lag": 0,
+                "lags": [0],
+                "per_chain": [],
+                "interpretation": (
+                    "Autocorrelation near zero beyond the first lag indicates good mixing."
+                ),
+            }
+        draws = int(entry_arr.shape[1])
+        chains = int(entry_arr.shape[0])
+        max_lag_target = int(min(100, max(draws * 0.1, 1.0)))
+        max_lag = int(min(max_lag_target, max(draws - 1, 0)))
+        lags = list(range(max_lag + 1))
+        per_chain = []
+        for chain_idx in range(chains):
+            chain_series = np.asarray(entry_arr[chain_idx, :], dtype=float)
+            ac_values = _autocorrelation_values(chain_series, max_lag)
+            if ac_values:
+                ac_values[0] = 1.0
+            per_chain.append(
+                {
+                    "chain_index": int(chain_idx),
+                    "values": [float(val) for val in ac_values],
+                }
+            )
+        guidance = (
+            "Look for autocorrelation values that drop toward zero within a few lags; "
+            "sustained high values imply sluggish mixing and the need for more draws."
+        )
+        return {
+            "max_lag": max_lag,
+            "lags": lags,
+            "per_chain": per_chain,
+            "interpretation": guidance,
+        }
+
+    def _gaussian_kde(samples: np.ndarray, support: np.ndarray) -> np.ndarray:
+        if samples.size <= 1 or support.size == 0:
+            return np.zeros_like(support, dtype=float)
+        finite = samples[np.isfinite(samples)]
+        if finite.size <= 1:
+            return np.zeros_like(support, dtype=float)
+        sd = float(np.std(finite, ddof=1))
+        if not np.isfinite(sd) or sd <= 0:
+            sd = max(float(np.abs(finite).mean()), 1e-3)
+        bandwidth = 1.06 * sd * (float(finite.size) ** (-1.0 / 5.0))
+        if not np.isfinite(bandwidth) or bandwidth <= 0:
+            bandwidth = sd if sd > 0 else 1.0
+        inv_scale = 1.0 / (bandwidth * np.sqrt(2.0 * np.pi))
+        diffs = (support[:, None] - finite[None, :]) / bandwidth
+        kernel = np.exp(-0.5 * diffs**2)
+        density = inv_scale * kernel.mean(axis=1)
+        return density
+
+    def _posterior_predictive_overlay(
+        var_name: str, index: tuple[Any, ...]
+    ) -> dict[str, Any] | None:
+        if ppc_group is None or var_name not in ppc_group.data_vars:
+            return None  # pragma: no cover - defensive fallback
+        try:
+            predictive_values = np.asarray(ppc_group[var_name].values, dtype=float)
+        except Exception:  # noqa: BLE001
+            return None  # pragma: no cover - invalid posterior predictive values
+        slicing = (slice(None), slice(None)) + index
+        try:
+            predictive_slice = predictive_values[slicing]
+        except Exception:  # noqa: BLE001
+            predictive_slice = predictive_values
+        predictive_flat = np.asarray(predictive_slice, dtype=float).reshape(-1)
+        predictive_flat = predictive_flat[np.isfinite(predictive_flat)]
+        if predictive_flat.size == 0:
+            return None  # pragma: no cover - no predictive draws
+
+        observed_flat = np.array([], dtype=float)
+        if observed_group is not None and var_name in observed_group.data_vars:
+            try:
+                observed_values = np.asarray(
+                    observed_group[var_name].values, dtype=float
+                )
+                if index:
+                    try:
+                        observed_values = observed_values[index]
+                    except Exception:  # noqa: BLE001
+                        observed_values = observed_values
+            except Exception:  # noqa: BLE001
+                observed_values = np.array([], dtype=float)
+            observed_flat = np.asarray(observed_values, dtype=float).reshape(-1)
+            observed_flat = observed_flat[np.isfinite(observed_flat)]
+
+        if observed_flat.size:
+            combined = np.concatenate([predictive_flat, observed_flat])
+        else:
+            combined = predictive_flat
+
+        if combined.size == 0:
+            return None  # pragma: no cover - cannot derive support
+
+        x_min = float(np.min(combined))
+        x_max = float(np.max(combined))
+        if not np.isfinite(x_min) or not np.isfinite(x_max):
+            return None  # pragma: no cover - invalid support bounds
+        if x_max <= x_min:
+            span = (
+                1.0
+                if not np.isfinite(predictive_flat.std())
+                else float(predictive_flat.std())
+            )
+            if span <= 0 or not np.isfinite(span):
+                span = 1.0
+            x_min -= span
+            x_max += span
+        x_support = np.linspace(x_min, x_max, num=200, dtype=float)
+        kde_values = _gaussian_kde(predictive_flat, x_support)
+        observed_samples = (
+            observed_flat[:500].astype(float).tolist() if observed_flat.size else []
+        )
+        return {
+            "kde": {
+                "x": x_support.astype(float).tolist(),
+                "y": kde_values.astype(float).tolist(),
+                "normalization": "density",
+            },
+            "observed": {
+                "samples": observed_samples,
+                "histnorm": "probability density",
+            },
+            "x_range": [x_min, x_max],
+            "sample_count": int(predictive_flat.size),
+        }
 
     def _diag_value(ds: Any, name: str, index: tuple[Any, ...]) -> float:
         if ds is None or name not in ds:
@@ -247,21 +413,77 @@ def _build_variable_payload(
                 return float(values.reshape(-1)[0])
         return float(values.reshape(-1)[0])
 
+    def _prior_parameters(var_name: str) -> tuple[float, float]:
+        mean = 0.0
+        sd = 1.0
+        if prior_group is None or var_name not in prior_group.data_vars:
+            return mean, sd
+        try:
+            values = np.asarray(prior_group[var_name].values, dtype=float)
+        except Exception:  # noqa: BLE001
+            return mean, sd
+        values = values.reshape(-1)
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            return mean, sd
+        mean = float(values.mean())
+        if values.size > 1:
+            sd_val = float(values.std(ddof=1))
+        else:
+            sd_val = float(values.std(ddof=0))
+        if not np.isfinite(sd_val) or sd_val <= 0:
+            sd_val = 1.0
+        return mean, sd_val
+
+    def _prior_curve(
+        mean: float, sd: float, *, fallback_mean: float, fallback_sd: float
+    ) -> dict[str, list[float]]:
+        curve_sd = sd if np.isfinite(sd) and sd > 0 else fallback_sd
+        if not np.isfinite(curve_sd) or curve_sd <= 0:
+            curve_sd = 1.0
+        curve_mean = mean if np.isfinite(mean) else fallback_mean
+        if not np.isfinite(curve_mean):
+            curve_mean = 0.0
+        x_min = curve_mean - 4.0 * curve_sd
+        x_max = curve_mean + 4.0 * curve_sd
+        if not np.isfinite(x_min) or not np.isfinite(x_max) or x_max <= x_min:
+            span_sd = (
+                fallback_sd if np.isfinite(fallback_sd) and fallback_sd > 0 else 1.0
+            )
+            if not np.isfinite(fallback_mean):
+                fallback_mean = 0.0
+            x_min = fallback_mean - 4.0 * span_sd
+            x_max = fallback_mean + 4.0 * span_sd
+        if not np.isfinite(x_min) or not np.isfinite(x_max) or x_max <= x_min:
+            x_min, x_max = -4.0, 4.0
+        x_vals = np.linspace(float(x_min), float(x_max), num=200, dtype=float)
+        denom = np.sqrt(2.0 * np.pi) * curve_sd
+        if denom == 0 or not np.isfinite(denom):
+            curve_sd = 1.0
+            denom = np.sqrt(2.0 * np.pi) * curve_sd
+        y_vals = 1.0 / denom * np.exp(-0.5 * ((x_vals - curve_mean) / curve_sd) ** 2)
+        return {
+            "x": x_vals.astype(float).tolist(),
+            "y": y_vals.astype(float).tolist(),
+        }
+
     for name, da in posterior.data_vars.items():
         if da.ndim < 2:  # expect chain/draw at least
             continue
         arr = np.asarray(da.values)
         if arr.shape[0] == 0 or arr.shape[1] == 0:
             continue
-        entry_shape = arr.shape[2:] if arr.ndim > 2 else (1,)
-        entry_count = int(np.prod(entry_shape))
+        if arr.ndim > 2:
+            entry_shape = arr.shape[2:]
+            entry_count = int(np.prod(entry_shape))
+        else:
+            entry_shape = ()
+            entry_count = 1
         chain_dim = arr.shape[0]
         for entry_idx in range(entry_count):
             if len(variables) >= max_variables:
                 break
-            idx_tuple = (
-                np.unravel_index(entry_idx, entry_shape) if entry_shape != (1,) else ()
-            )
+            idx_tuple = np.unravel_index(entry_idx, entry_shape) if entry_shape else ()
             entry_slice = (slice(None), slice(None)) + idx_tuple
             entry_arr = arr[entry_slice]  # shape (chain, draw)
             samples_flat = entry_arr.reshape(-1)
@@ -276,17 +498,38 @@ def _build_variable_payload(
             q50 = float(percentiles[1])
             q95 = float(percentiles[2])
             sample_list = samples_flat[:max_samples].astype(float).tolist()
-            chain_samples = [
-                entry_arr[c, :max_trace].astype(float).tolist()
-                for c in range(min(chain_dim, 4))
+            total_draws = int(entry_arr.shape[1]) if entry_arr.ndim >= 2 else 0
+            max_total_draws = max(max_total_draws, total_draws)
+            full_chain_values = [
+                entry_arr[c, :].astype(float).tolist() for c in range(chain_dim)
             ]
+            chain_limit = min(chain_dim, 4)
+            chain_samples = full_chain_values[:chain_limit]
+            draw_indices = list(range(total_draws))
             index_label = (
                 "" if not idx_tuple else "[" + ",".join(str(i) for i in idx_tuple) + "]"
             )
             label = f"{name}{index_label}"
+            variable_id = label
+            prior_mean, prior_sd = _prior_parameters(name)
+            prior_curve = _prior_curve(
+                prior_mean,
+                prior_sd,
+                fallback_mean=mean_val,
+                fallback_sd=sd_val if np.isfinite(sd_val) and sd_val > 0 else 1.0,
+            )
+            prior_info = {
+                "mean": float(prior_mean if np.isfinite(prior_mean) else mean_val),
+                "sd": float(
+                    prior_sd if np.isfinite(prior_sd) and prior_sd > 0 else 1.0
+                ),
+                "curve": prior_curve,
+            }
+            autocorr_info = _autocorrelation_profile(entry_arr)
+            ppc_overlay = _posterior_predictive_overlay(name, idx_tuple)
             variables.append(
                 {
-                    "id": label,
+                    "id": variable_id,
                     "label": label,
                     "mean": mean_val,
                     "sd": sd_val,
@@ -295,14 +538,58 @@ def _build_variable_payload(
                     "q95": float(q95),
                     "samples": sample_list,
                     "chains": chain_samples,
-                    "prior": {"mean": 0.0, "sd": 1.0},
+                    "trace": {
+                        "total_draws": total_draws,
+                        "total_chains": chain_dim,
+                        "draw_indices": draw_indices,
+                        "chains": [
+                            {
+                                "chain_index": int(chain_idx),
+                                "values": full_chain_values[chain_idx],
+                            }
+                            for chain_idx in range(chain_dim)
+                        ],
+                        "hover": {
+                            "mode": "x unified",
+                            "tooltip": "all_chains",
+                        },
+                    },
+                    "prior": prior_info,
                     "r_hat": _diag_value(rhat_ds, name, idx_tuple),
                     "ess_bulk": _diag_value(ess_bulk_ds, name, idx_tuple),
+                    "autocorrelation": autocorr_info,
+                    "ppc": ppc_overlay,
+                }
+            )
+            group = grouped.setdefault(
+                name,
+                {
+                    "base": name,
+                    "has_indices": False,
+                    "variables": [],
+                },
+            )
+            if idx_tuple:
+                group["has_indices"] = True
+            display_label = index_label if index_label else name
+            group["variables"].append(
+                {
+                    "id": variable_id,
+                    "label": display_label,
+                    "index": [int(i) for i in idx_tuple],
                 }
             )
         if len(variables) >= max_variables:
             break
-    return {"variables": variables, "max_trace": max_trace}
+    base_options = list(grouped.values())
+    base_options.sort(key=lambda item: item["base"])
+    for group in base_options:
+        group["variables"].sort(key=lambda entry: entry["label"])
+    return {
+        "variables": variables,
+        "max_trace": max_total_draws,
+        "base_options": base_options,
+    }
 
 
 def _build_inference_suggestions(
@@ -470,6 +757,10 @@ def _render_dashboard_html(
     .variable-panel {{ display: flex; flex-direction: column; gap: 16px; }}
     .variable-controls {{ display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }}
     select {{ padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 14px; }}
+    .variable-controls select {{ transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out; }}
+    .variable-controls select:focus,
+    .variable-controls select:hover {{ border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18); outline: none; }}
+    .variable-controls select.active {{ border-color: #1e40af; box-shadow: 0 0 0 2px rgba(30, 64, 175, 0.22); }}
     .variable-summary {{ background: white; border-radius: 8px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); font-size: 13px; }}
     .hierarchy-flex {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }}
     .inference-form {{ display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }}
@@ -499,10 +790,12 @@ def _render_dashboard_html(
 
     <div class=\"tab-content\" id=\"tab-variables\">
       <div class=\"variable-panel\">
-        <div class=\"variable-controls\">
-          <label for=\"variable-select\">Select variable:</label>
-          <select id=\"variable-select\"></select>
-        </div>
+                <div class=\"variable-controls\">
+                    <label for=\"variable-base-select\">Parameter:</label>
+                    <select id=\"variable-base-select\"></select>
+                    <label for=\"variable-index-select\" id=\"variable-index-label\" style=\"display:none;\">Index:</label>
+                    <select id=\"variable-index-select\" style=\"display:none;\"></select>
+                </div>
         <div class=\"variable-summary\" id=\"variable-summary\"></div>
         <div id=\"plot-variable-density\" class=\"plot\"></div>
         <div id=\"plot-variable-trace\" class=\"plot\"></div>
@@ -542,75 +835,376 @@ def _render_dashboard_html(
     const VARIABLE_DATA = {variable_json};
     const VARIABLES = VARIABLE_DATA.variables || [];
     const VARIABLE_MAX_TRACE = VARIABLE_DATA.max_trace || 0;
+            const RAW_VARIABLE_GROUPS = VARIABLE_DATA.base_options || [];
+                const VARIABLE_GROUPS = RAW_VARIABLE_GROUPS.length
+                    ? RAW_VARIABLE_GROUPS
+                            : (VARIABLES.map((item) => ({{
+                                    base: item.label,
+                                    has_indices: false,
+                                    variables: [{{ id: item.id, label: item.label, index: [] }}],
+                                }})));
+            const VARIABLE_GROUP_MAP = Object.fromEntries(VARIABLE_GROUPS.map((group) => [group.base, group]));
+            const VARIABLE_LOOKUP = Object.fromEntries(VARIABLES.map((item) => [item.id, item]));
     const INFERENCE = {inference_json};
     const DECISION_FLOW = {decision_flow};
 
-    const renderedTabs = {{ modelFit: false, variables: false, hierarchy: false, validation: false, inference: false }};
+        const renderedTabs = {{ modelFit: false, variables: false, hierarchy: false, validation: false, inference: false }};
+        const variableState = {{ base: null, variableId: null }};
+        const escapeBuffer = document.createElement('div');
 
-    function renderModelFit() {{
-      if (renderedTabs.modelFit) return;
-      Plotly.newPlot('plot-model-fit-contrib', PLOTS.contrib.data, PLOTS.contrib.layout, {{responsive: true}});
-      renderedTabs.modelFit = true;
-    }}
+        function escapeHtml(value) {{
+            escapeBuffer.textContent = value == null ? '' : String(value);
+            return escapeBuffer.innerHTML;
+        }}
 
-    function renderVariables() {{
-      if (renderedTabs.variables) return;
-      const select = document.getElementById('variable-select');
-      if (VARIABLES.length === 0) {{
-        select.innerHTML = '<option>No posterior variables available</option>';
-        document.getElementById('variable-summary').textContent = 'Posterior diagnostics unavailable.';
-        renderedTabs.variables = true;
-        return;
-      }}
-      VARIABLES.forEach((item, idx) => {{
-        const opt = document.createElement('option');
-        opt.value = idx;
-        opt.textContent = item.label;
-        select.appendChild(opt);
-      }});
-      select.addEventListener('change', () => renderVariableDetail(Number(select.value)));
-      renderVariableDetail(0);
-      renderedTabs.variables = true;
-    }}
+        function renderModelFit() {{
+            if (renderedTabs.modelFit) return;
+            Plotly.newPlot('plot-model-fit-contrib', PLOTS.contrib.data, PLOTS.contrib.layout, {{ responsive: true }});
+            renderedTabs.modelFit = true;
+        }}
 
-    function renderVariableDetail(index) {{
-      const data = VARIABLES[index];
-      if (!data) return;
-      const summary = `
-        <strong>{html.escape("Variable")}: </strong>${{data.label}}<br/>
-        <strong>Mean:</strong> ${{data.mean.toFixed(4)}} &nbsp; <strong>SD:</strong> ${{data.sd.toFixed(4)}}<br/>
-        <strong>5th pct:</strong> ${{data.q05.toFixed(4)}} &nbsp; <strong>Median:</strong> ${{data.median.toFixed(4)}} &nbsp; <strong>95th pct:</strong> ${{data.q95.toFixed(4)}}
-      `;
-      document.getElementById('variable-summary').innerHTML = summary;
-      if (data.samples && data.samples.length) {{
-        Plotly.newPlot('plot-variable-density', [
-          {{ x: data.samples, type: 'histogram', marker: {{color: '#2563eb', opacity: 0.7}}, name: 'Posterior' }}
-        ], {{
-          template: 'plotly_white',
-          title: `${{data.label}} posterior density`,
-          bargap: 0.05
-        }}, {{responsive: true}});
-      }} else {{
-        Plotly.purge('plot-variable-density');
-      }}
-      if (data.chains && data.chains.length) {{
-        const traces = data.chains.map((samples, idx) => ({{
-          y: samples,
-          x: samples.map((_, i) => i),
-          mode: 'lines',
-          name: `Chain ${{idx + 1}}`,
-          line: {{ width: 1 }}
-        }}));
-        Plotly.newPlot('plot-variable-trace', traces, {{
-          template: 'plotly_white',
-          title: `${{data.label}} trace (first ${{VARIABLE_MAX_TRACE}} draws)`
-        }}, {{responsive: true}});
-      }} else {{
-        Plotly.purge('plot-variable-trace');
-      }}
-    }}
+        function renderVariables() {{
+            if (renderedTabs.variables) return;
+            const baseSelect = document.getElementById('variable-base-select');
+            const indexSelect = document.getElementById('variable-index-select');
+            const indexLabel = document.getElementById('variable-index-label');
+            const summaryElement = document.getElementById('variable-summary');
 
-    function renderHierarchy() {{
+            baseSelect.setAttribute('aria-label', 'Parameter group');
+            baseSelect.setAttribute('aria-controls', 'variable-summary');
+            indexSelect.setAttribute('aria-label', 'Parameter index');
+            indexSelect.setAttribute('aria-controls', 'variable-summary');
+
+            summaryElement.setAttribute('role', 'status');
+            summaryElement.setAttribute('aria-live', 'polite');
+
+            if (VARIABLES.length === 0) {{
+                baseSelect.innerHTML = '<option>No posterior variables available</option>';
+                baseSelect.disabled = true;
+                indexSelect.style.display = 'none';
+                indexLabel.style.display = 'none';
+                summaryElement.textContent = 'Posterior diagnostics unavailable.';
+                renderedTabs.variables = true;
+                return;
+            }}
+
+            baseSelect.innerHTML = '';
+            const multipleGroups = VARIABLE_GROUPS.length > 1;
+            if (multipleGroups) {{
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Choose parameter…';
+                placeholder.disabled = true;
+                baseSelect.appendChild(placeholder);
+            }}
+
+            VARIABLE_GROUPS.forEach((group) => {{
+                const opt = document.createElement('option');
+                opt.value = group.base;
+                const label = group.has_indices ? group.base + ' (' + group.variables.length + ')' : group.base;
+                opt.textContent = label;
+                opt.title = 'Inspect ' + group.base;
+                baseSelect.appendChild(opt);
+            }});
+
+            function toggleIndexVisibility(show) {{
+                indexSelect.style.display = show ? '' : 'none';
+                indexLabel.style.display = show ? '' : 'none';
+                indexSelect.disabled = !show;
+                indexLabel.setAttribute('aria-hidden', show ? 'false' : 'true');
+            }}
+
+            function selectVariableById(variableId) {{
+                if (!variableId) {{
+                    summaryElement.innerHTML = '<em>Select a parameter to inspect.</em>';
+                    summaryElement.dataset.variableId = '';
+                    variableState.variableId = null;
+                    Plotly.purge('plot-variable-density');
+                    Plotly.purge('plot-variable-trace');
+                    return;
+                }}
+
+                const data = VARIABLE_LOOKUP[variableId];
+                if (!data) {{
+                    summaryElement.innerHTML = '<em>Parameter not found.</em>';
+                    summaryElement.dataset.variableId = '';
+                    variableState.variableId = null;
+                    Plotly.purge('plot-variable-density');
+                    Plotly.purge('plot-variable-trace');
+                    return;
+                }}
+
+                variableState.variableId = variableId;
+                variableState.base = baseSelect.value || null;
+                summaryElement.dataset.variableId = variableId;
+                summaryElement.dataset.base = variableState.base || '';
+
+                const formattedLines = [
+                    '<strong>Variable:</strong> ' + escapeHtml(data.label),
+                    '<strong>Mean:</strong> ' + (Number.isFinite(data.mean) ? data.mean.toFixed(4) : 'NA') + ' &nbsp; <strong>SD:</strong> ' + (Number.isFinite(data.sd) ? data.sd.toFixed(4) : 'NA'),
+                    '<strong>5th pct:</strong> ' + (Number.isFinite(data.q05) ? data.q05.toFixed(4) : 'NA') + ' &nbsp; <strong>Median:</strong> ' + (Number.isFinite(data.median) ? data.median.toFixed(4) : 'NA') + ' &nbsp; <strong>95th pct:</strong> ' + (Number.isFinite(data.q95) ? data.q95.toFixed(4) : 'NA')
+                ];
+                summaryElement.innerHTML = formattedLines.join('<br/>');
+
+                renderVariableDetail(variableId);
+            }}
+
+            function updateIndexSelect(baseName, preferredId) {{
+                const group = VARIABLE_GROUP_MAP[baseName];
+                baseSelect.title = group ? 'Parameter group: ' + group.base : 'Parameter group';
+                indexSelect.innerHTML = '';
+
+                if (!group) {{
+                    toggleIndexVisibility(false);
+                    selectVariableById(null);
+                    return;
+                }}
+
+                const variants = Array.isArray(group.variables) ? group.variables.slice() : [];
+                variants.sort((a, b) => a.label.localeCompare(b.label, undefined, {{ numeric: true, sensitivity: 'base' }}));
+
+                if (!group.has_indices || variants.length <= 1) {{
+                    toggleIndexVisibility(false);
+                    const first = variants[0];
+                    selectVariableById(first ? first.id : null);
+                    return;
+                }}
+
+                toggleIndexVisibility(true);
+                variants.forEach((entry) => {{
+                    const opt = document.createElement('option');
+                    opt.value = entry.id;
+                    opt.textContent = entry.label;
+                    opt.title = 'Inspect ' + group.base + (entry.label.startsWith('[') ? ' ' + entry.label : ' [' + entry.label + ']');
+                    indexSelect.appendChild(opt);
+                }});
+
+                let nextId = preferredId && variants.some((entry) => entry.id === preferredId) ? preferredId : null;
+                if (!nextId && variants[0]) {{
+                    nextId = variants[0].id;
+                }}
+                if (nextId) {{
+                    indexSelect.value = nextId;
+                }}
+                selectVariableById(nextId);
+            }}
+
+            baseSelect.addEventListener('change', () => {{
+                const targetBase = baseSelect.value;
+                updateIndexSelect(targetBase, null);
+            }});
+
+            indexSelect.addEventListener('change', () => {{
+                selectVariableById(indexSelect.value);
+            }});
+
+            const initialBase = variableState.base && VARIABLE_GROUP_MAP[variableState.base]
+                ? variableState.base
+                : (VARIABLE_GROUPS[0] ? VARIABLE_GROUPS[0].base : null);
+
+            if (initialBase) {{
+                baseSelect.value = initialBase;
+                updateIndexSelect(initialBase, variableState.variableId);
+            }} else if (VARIABLES[0]) {{
+                selectVariableById(VARIABLES[0].id);
+            }} else {{
+                selectVariableById(null);
+            }}
+
+            renderedTabs.variables = true;
+        }}
+
+        function renderVariableDetail(variableId) {{
+            const data = VARIABLE_LOOKUP[variableId];
+            if (!data) {{
+                Plotly.purge('plot-variable-density');
+                Plotly.purge('plot-variable-trace');
+                return;
+            }}
+
+            const posteriorSamples = Array.isArray(data.samples) ? data.samples : [];
+            const priorCurve = data.prior && data.prior.curve;
+            const hasPriorCurve = !!(
+                priorCurve &&
+                Array.isArray(priorCurve.x) &&
+                Array.isArray(priorCurve.y) &&
+                priorCurve.x.length === priorCurve.y.length
+            );
+            const ppcMeta = data.ppc || null;
+            const hasPpcKde = !!(
+                ppcMeta &&
+                ppcMeta.kde &&
+                Array.isArray(ppcMeta.kde.x) &&
+                Array.isArray(ppcMeta.kde.y) &&
+                ppcMeta.kde.x.length === ppcMeta.kde.y.length
+            );
+            const observedSamples = ppcMeta && ppcMeta.observed && Array.isArray(ppcMeta.observed.samples)
+                ? ppcMeta.observed.samples
+                : [];
+            const observedHistnorm = ppcMeta && ppcMeta.observed && typeof ppcMeta.observed.histnorm === 'string'
+                ? ppcMeta.observed.histnorm
+                : 'probability density';
+            const ppcRange = ppcMeta && Array.isArray(ppcMeta.x_range)
+                ? ppcMeta.x_range
+                : null;
+
+            const densityTraces = [
+                {{
+                    x: posteriorSamples,
+                    type: 'histogram',
+                    histnorm: 'probability density',
+                    marker: {{ color: '#2563eb' }},
+                    opacity: 0.55,
+                    name: 'Posterior',
+                    hovertemplate: 'Posterior density<br>Value: %{{x:.3f}}<br>Density: %{{y:.3f}}<extra></extra>',
+                }},
+            ];
+
+            if (observedSamples.length) {{
+                densityTraces.push({{
+                    x: observedSamples,
+                    type: 'histogram',
+                    histnorm: observedHistnorm,
+                    marker: {{ color: '#10b981' }},
+                    opacity: 0.45,
+                    name: 'Observed',
+                    hovertemplate: 'Observed<br>Value: %{{x:.3f}}<br>Density: %{{y:.3f}}<extra></extra>',
+                }});
+            }}
+
+            if (hasPriorCurve) {{
+                densityTraces.push({{
+                    x: priorCurve.x,
+                    y: priorCurve.y,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Prior',
+                    line: {{ color: '#d9480f', width: 2, dash: 'dot' }},
+                    hovertemplate: 'Prior density<br>Value: %{{x:.3f}}<br>Density: %{{y:.3f}}<extra></extra>',
+                }});
+            }}
+
+            if (hasPpcKde) {{
+                densityTraces.push({{
+                    x: ppcMeta.kde.x,
+                    y: ppcMeta.kde.y,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Posterior predictive',
+                    line: {{ color: '#7c3aed', width: 2 }},
+                    hovertemplate: 'Posterior predictive<br>Value: %{{x:.3f}}<br>Density: %{{y:.3f}}<extra></extra>',
+                }});
+            }}
+
+            const densityLayout = {{
+                template: 'plotly_white',
+                title: data.label + ' posterior density',
+                bargap: 0.05,
+                barmode: 'overlay',
+                xaxis: {{ title: 'Parameter value' }},
+                yaxis: {{ title: 'Density' }},
+                legend: {{ orientation: 'h', x: 0, y: 1.12, font: {{ size: 12 }} }},
+                margin: {{ t: 60 }},
+                hovermode: 'closest',
+            }};
+
+            const combinedX = posteriorSamples.slice();
+            if (hasPriorCurve) {{
+                combinedX.push(...priorCurve.x);
+            }}
+            if (observedSamples.length) {{
+                combinedX.push(...observedSamples);
+            }}
+            if (hasPpcKde) {{
+                combinedX.push(...ppcMeta.kde.x);
+            }}
+            const finiteX = combinedX.filter((val) => Number.isFinite(val));
+            let xRange = null;
+            if (ppcRange && ppcRange.length === 2 && ppcRange.every((val) => Number.isFinite(val))) {{
+                xRange = ppcRange;
+            }} else if (finiteX.length) {{
+                const minX = Math.min(...finiteX);
+                const maxX = Math.max(...finiteX);
+                if (minX < maxX) {{
+                    xRange = [minX, maxX];
+                }}
+            }}
+            if (xRange) {{
+                densityLayout.xaxis.range = xRange;
+            }}
+
+            Plotly.react('plot-variable-density', densityTraces, densityLayout, {{ responsive: true }});
+
+            const chains = Array.isArray(data.chains) ? data.chains : [];
+            const traceInfo = data.trace || null;
+            const traceChains = traceInfo && Array.isArray(traceInfo.chains)
+                ? traceInfo.chains
+                : [];
+
+            if (traceChains.length) {{
+                const drawIndices = Array.isArray(traceInfo.draw_indices)
+                    ? traceInfo.draw_indices
+                    : null;
+
+                const traceTraces = traceChains.map((series, idx) => {{
+                    const values = Array.isArray(series && series.values) ? series.values : [];
+                    const fallbackIndices = values.map((_, i) => i);
+                    const seriesDraws = Array.isArray(series && series.draw_indices)
+                        ? series.draw_indices
+                        : null;
+                    const xValues = drawIndices && drawIndices.length === values.length
+                        ? drawIndices
+                        : (seriesDraws && seriesDraws.length === values.length ? seriesDraws : fallbackIndices);
+                    const chainIndex = typeof series.chain_index === 'number' ? series.chain_index : idx;
+                    return {{
+                        x: xValues,
+                        y: values,
+                        mode: 'lines',
+                        name: 'Chain ' + (chainIndex + 1),
+                        line: {{ width: 1 }},
+                    }};
+                }});
+
+                const totalDraws = typeof traceInfo.total_draws === 'number'
+                    ? traceInfo.total_draws
+                    : (traceTraces[0] && Array.isArray(traceTraces[0].y) ? traceTraces[0].y.length : VARIABLE_MAX_TRACE);
+                const hoverMode = traceInfo.hover && typeof traceInfo.hover.mode === 'string'
+                    ? traceInfo.hover.mode
+                    : 'x';
+
+                Plotly.react('plot-variable-trace', traceTraces, {{
+                    template: 'plotly_white',
+                    title: data.label + ' trace (' + totalDraws + ' draws)',
+                    xaxis: {{ title: 'Draw' }},
+                    yaxis: {{ title: 'Value' }},
+                    legend: {{ orientation: 'h', x: 0, y: 1.15, font: {{ size: 11 }} }},
+                    hovermode: hoverMode,
+                }}, {{ responsive: true }});
+            }} else if (chains.length) {{
+                const traceTraces = chains.map((samples, idx) => {{
+                    const values = Array.isArray(samples) ? samples : [];
+                    return {{
+                        x: values.map((_, i) => i),
+                        y: values,
+                        mode: 'lines',
+                        name: 'Chain ' + (idx + 1),
+                        line: {{ width: 1 }},
+                    }};
+                }});
+
+                Plotly.react('plot-variable-trace', traceTraces, {{
+                    template: 'plotly_white',
+                    title: data.label + ' trace (' + (VARIABLE_MAX_TRACE || traceTraces[0].y.length) + ' draws)',
+                    xaxis: {{ title: 'Draw' }},
+                    yaxis: {{ title: 'Value' }},
+                    legend: {{ orientation: 'h', x: 0, y: 1.15, font: {{ size: 11 }} }},
+                }}, {{ responsive: true }});
+            }} else {{
+                Plotly.purge('plot-variable-trace');
+            }}
+        }}
+
+        function renderHierarchy() {{
       if (renderedTabs.hierarchy) return;
       Plotly.newPlot('plot-hierarchy-naics', PLOTS.naics_hierarchy.data, PLOTS.naics_hierarchy.layout, {{responsive: true}});
       Plotly.newPlot('plot-hierarchy-zip', PLOTS.zip_hierarchy.data, PLOTS.zip_hierarchy.layout, {{responsive: true}});
