@@ -19,7 +19,10 @@ from hierarchical_naics_model.synthgen.generate import (
     HierSpec,
     generate_synthetic_dataset,
 )
-from hierarchical_naics_model.reporting.dashboard import build_dashboard
+from hierarchical_naics_model.reporting import dashboard as dashboard_module
+
+TRACE_MAX_POINTS = getattr(dashboard_module, "TRACE_MAX_POINTS", 400)
+build_dashboard = dashboard_module.build_dashboard
 
 
 def _shuffle_and_split(
@@ -458,7 +461,13 @@ def test_dashboard_variable_tab_payload():
     trace_info = beta0_entry.get("trace")
     assert trace_info is not None
     assert trace_info["total_draws"] == expected_draws
-    assert trace_info["draw_indices"] == list(range(expected_draws))
+    draw_indices = trace_info["draw_indices"]
+    assert draw_indices[0] == 0
+    assert draw_indices[-1] == expected_draws - 1
+    if expected_draws > TRACE_MAX_POINTS:
+        assert len(draw_indices) == TRACE_MAX_POINTS
+    else:
+        assert draw_indices == list(range(expected_draws))
     assert trace_info.get("hover", {}).get("mode") == "x unified"
     prior_curve = beta0_entry["prior"].get("curve")
     assert prior_curve is not None, (
@@ -470,8 +479,8 @@ def test_dashboard_variable_tab_payload():
     assert all(isinstance(val, float) for val in prior_curve["y"][:5])
 
 
-def test_dashboard_variable_trace_includes_all_draws():
-    """Trace metadata should expose full draw counts for each chain."""
+def test_dashboard_variable_trace_downsamples_and_smooths():
+    """Trace metadata should downsample draws while exposing smoothing support."""
 
     reliability = pl.DataFrame(
         {
@@ -516,7 +525,7 @@ def test_dashboard_variable_trace_includes_all_draws():
         "zip_deltas": [],
     }
 
-    draws = 240
+    draws = TRACE_MAX_POINTS + 150
     chains = 2
     beta0_values = np.linspace(0.04, 0.06, num=draws, dtype=float)
     posterior = xr.Dataset(
@@ -568,14 +577,29 @@ def test_dashboard_variable_trace_includes_all_draws():
     assert trace_info.get("total_chains") == chains
 
     draw_indices = trace_info.get("draw_indices")
-    assert draw_indices == list(range(draws)), "Trace should expose every draw index"
+    assert len(draw_indices) == TRACE_MAX_POINTS
+    assert draw_indices[0] == 0
+    assert draw_indices[-1] == draws - 1
 
     chain_series = trace_info.get("chains") or []
     assert len(chain_series) == chains
     for idx, series in enumerate(chain_series):
         values = series.get("values") or []
-        assert len(values) == draws, "Displayed samples must include every draw"
+        series_indices = series.get("draw_indices") or draw_indices
+        assert len(values) == TRACE_MAX_POINTS
+        assert series_indices[0] == 0
+        assert series_indices[-1] == draws - 1
         assert series.get("chain_index") == idx
+
+    smoothed = trace_info.get("smoothed") or []
+    assert len(smoothed) == chains
+    for smooth_series in smoothed:
+        smooth_values = smooth_series.get("values") or []
+        smooth_indices = smooth_series.get("draw_indices") or []
+        assert len(smooth_values) == TRACE_MAX_POINTS
+        assert smooth_indices[0] == 0
+        assert smooth_indices[-1] == draws - 1
+        assert all(np.isfinite(val) for val in smooth_values)
 
 
 def test_dashboard_variable_trace_with_prior_and_indices():
@@ -712,7 +736,20 @@ def test_dashboard_variable_trace_with_prior_and_indices():
     trace = sample_entry["trace"]
     assert trace["total_chains"] == chains
     assert trace["total_draws"] == draws
+    assert trace["draw_indices"] == list(range(draws))
     assert all(len(series["values"]) == draws for series in trace["chains"])
+    assert all(
+        (series.get("draw_indices") or list(range(draws))) == list(range(draws))
+        for series in trace["chains"]
+    )
+
+    smoothed = trace.get("smoothed") or []
+    assert len(smoothed) == chains
+    assert all(len(series.get("values") or []) == draws for series in smoothed)
+    assert all(
+        (series.get("draw_indices") or list(range(draws))) == list(range(draws))
+        for series in smoothed
+    )
 
     # Prior mean/curve should leverage prior group samples
     prior_curve = sample_entry["prior"]["curve"]

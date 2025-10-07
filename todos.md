@@ -47,31 +47,31 @@ You must also strive to keep high-level logic straightforward and focused on orc
     [x] Ensure a test fails if there is no interpretation guidance for the autocorrelation plot.
     [x] Implement the code to add interpretation guidance for the autocorrelation plot.
     [x] Confirm the test passes after implementation.
-[ ] Posterior predictive check (PPC) KDE overlays
-    [ ] Add failing test to confirm PPC KDE overlay presence and structure in API response
-    [ ] Implement the code to compute and include the PPC KDE overlay in the response.
-    [ ] Confirm the test passes after implementation.
-    [ ] Ensure a test fails if the PPC KDE overlay does not match the observed data histogram in terms of x-axis range and scale.
-    [ ] Implement the code to ensure the PPC KDE overlay matches the observed data histogram in terms of x-axis range and scale.
-    [ ] Confirm the test passes after implementation.
+[x] Posterior predictive check (PPC) KDE overlays
+    [x] Add failing test to confirm PPC KDE overlay presence and structure in API response
+    [x] Implement the code to compute and include the PPC KDE overlay in the response.
+    [x] Confirm the test passes after implementation.
+    [x] Ensure a test fails if the PPC KDE overlay does not match the observed data histogram in terms of x-axis range and scale.
+    [x] Implement the code to ensure the PPC KDE overlay matches the observed data histogram in terms of x-axis range and scale.
+    [x] Confirm the test passes after implementation.
 
-[ ] Dashboard variable dropdown follow-up
+[x] Dashboard variable dropdown follow-up
     [x] Variable dropdown should show uncluttered base names with a secondary selector for indices: Done (tests + implementation).
-[ ] Prior density overlay QA
-    [ ] Add failing test to confirm prior curve presence and structure in API response
-    [ ] Observe the failure, then implement the code to generate and include the prior density curve in the response.
-    [ ] Confirm the test passes after implementation.
-[ ] Convergence indicator badges for R-hat / ESS
-    [ ] Add failing test for presence and thresholds of R-hat in API response
-     [ ] Implement the logic to compute and include this diagnostic in the response
-    [ ] Confirm the test passes after implementation.
-    [ ] Add failing test for presence and thresholds of ESS in API response
-    [ ] Implement the logic to compute and include this diagnostic in the response
-    [ ] Confirm the test passes after implementation.
-[ ] Summary chips for key posterior stats
-    [ ] Add failing test for presence and correctness of mean, median, 5/95% quantiles in API response
-    [ ] Implement the logic to compute and include these stats in the response
-    [ ] Confirm the test passes after implementation.
+[x] Prior density overlay QA
+    [x] Add failing test to confirm prior curve presence and structure in API response
+    [x] Observe the failure, then implement the code to generate and include the prior density curve in the response.
+    [x] Confirm the test passes after implementation.
+[x] Convergence indicator badges for R-hat / ESS
+    [x] Add failing test for presence and thresholds of R-hat in API response
+     [x] Implement the logic to compute and include this diagnostic in the response
+    [x] Confirm the test passes after implementation.
+    [x] Add failing test for presence and thresholds of ESS in API response
+    [x] Implement the logic to compute and include this diagnostic in the response
+    [x] Confirm the test passes after implementation.
+[x] Summary chips for key posterior stats
+    [x] Add failing test for presence and correctness of mean, median, 5/95% quantiles in API response
+    [x] Implement the logic to compute and include these stats in the response
+    [x] Confirm the test passes after implementation.
 [ ] Trace plot smoothing and draw downsampling
     [ ] Add failing test for trace plot smoothing and draw downsampling in API response
     [ ] Implement the logic to apply smoothing and downsampling to the trace data

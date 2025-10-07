@@ -14,6 +14,8 @@ from plotly.subplots import make_subplots
 
 DashboardPayload = MutableMapping[str, Any]
 
+TRACE_MAX_POINTS = 400
+
 
 def _as_float(value: Any) -> float:
     try:
@@ -322,6 +324,16 @@ def _build_variable_payload(
         density = inv_scale * kernel.mean(axis=1)
         return density
 
+    def _smooth_trace_series(values: Sequence[float], window: int = 7) -> list[float]:
+        if window <= 1:
+            return [float(val) for val in values]
+        padded = np.asarray([float(val) for val in values], dtype=float)
+        if padded.size == 0:
+            return []
+        kernel = np.ones(window, dtype=float) / float(window)
+        smoothed = np.convolve(padded, kernel, mode="same")
+        return smoothed.astype(float).tolist()
+
     def _posterior_predictive_overlay(
         var_name: str, index: tuple[Any, ...]
     ) -> dict[str, Any] | None:
@@ -527,6 +539,55 @@ def _build_variable_payload(
             }
             autocorr_info = _autocorrelation_profile(entry_arr)
             ppc_overlay = _posterior_predictive_overlay(name, idx_tuple)
+            trace_payload: dict[str, Any] = {
+                "total_draws": total_draws,
+                "total_chains": chain_dim,
+                "draw_indices": draw_indices,
+                "chains": [
+                    {
+                        "chain_index": int(chain_idx),
+                        "values": full_chain_values[chain_idx],
+                    }
+                    for chain_idx in range(chain_dim)
+                ],
+                "hover": {
+                    "mode": "x unified",
+                    "tooltip": "all_chains",
+                },
+            }
+
+            if total_draws > TRACE_MAX_POINTS:
+                ds_indices = np.linspace(0, total_draws - 1, TRACE_MAX_POINTS)
+                ds_indices = np.round(ds_indices).astype(int)
+                ds_indices[0] = 0
+                ds_indices[-1] = total_draws - 1
+                downsampled_indices = ds_indices.tolist()
+
+                trace_payload["draw_indices"] = downsampled_indices
+                trace_payload["chains"] = []
+                smoothed_series: list[dict[str, Any]] = []
+                for chain_idx in range(chain_dim):
+                    chain_values = full_chain_values[chain_idx]
+                    downsampled_values = [
+                        chain_values[idx] for idx in downsampled_indices
+                    ]
+                    trace_payload["chains"].append(
+                        {
+                            "chain_index": int(chain_idx),
+                            "values": downsampled_values,
+                            "draw_indices": downsampled_indices,
+                        }
+                    )
+                    smoothed_values = _smooth_trace_series(chain_values)
+                    smoothed_series.append(
+                        {
+                            "chain_index": int(chain_idx),
+                            "values": smoothed_values,
+                            "draw_indices": draw_indices,
+                        }
+                    )
+                trace_payload["smoothed"] = smoothed_series
+
             variables.append(
                 {
                     "id": variable_id,
@@ -538,22 +599,7 @@ def _build_variable_payload(
                     "q95": float(q95),
                     "samples": sample_list,
                     "chains": chain_samples,
-                    "trace": {
-                        "total_draws": total_draws,
-                        "total_chains": chain_dim,
-                        "draw_indices": draw_indices,
-                        "chains": [
-                            {
-                                "chain_index": int(chain_idx),
-                                "values": full_chain_values[chain_idx],
-                            }
-                            for chain_idx in range(chain_dim)
-                        ],
-                        "hover": {
-                            "mode": "x unified",
-                            "tooltip": "all_chains",
-                        },
-                    },
+                    "trace": trace_payload,
                     "prior": prior_info,
                     "r_hat": _diag_value(rhat_ds, name, idx_tuple),
                     "ess_bulk": _diag_value(ess_bulk_ds, name, idx_tuple),
